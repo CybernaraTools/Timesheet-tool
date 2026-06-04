@@ -1,0 +1,198 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum UserRole {
+  employee
+  manager
+  admin
+}
+
+enum UserStatus {
+  pending
+  active
+  suspended
+}
+
+enum OtpPurpose {
+  signin
+  signup
+  invite
+}
+
+enum OutputStatus {
+  done
+  in_progress
+  blocked
+  deferred
+}
+
+enum CategoryType {
+  system
+  custom
+}
+
+enum EditRequestStatus {
+  pending
+  approved
+  rejected
+}
+
+model User {
+  id            String     @id @db.Uuid
+  full_name     String
+  username      String?    @unique
+  email         String     @unique
+  role          UserRole   @default(employee)
+  password_hash String?
+  manager_id    String?    @db.Uuid
+  department    String?
+  status        UserStatus @default(pending)
+  created_via   String     @default("signup")
+  created_at    DateTime   @default(now()) @db.Timestamptz
+  updated_at    DateTime   @default(now()) @db.Timestamptz
+
+  manager       User?      @relation("UserManager", fields: [manager_id], references: [id])
+  reports       User[]     @relation("UserManager")
+
+  invite_tokens        InviteToken[]      @relation("InvitedBy")
+  clients              Client[]           @relation("ClientCreatedBy")
+  categories           Category[]         @relation("CategoryCreatedBy")
+  timesheet_entries    TimesheetEntry[]   @relation("UserTimesheet")
+  edit_requests        EditRequest[]      @relation("RequestedBy")
+  reviewed_requests    EditRequest[]      @relation("ReviewedBy")
+  audit_logs           AuditLog[]         @relation("AuditUser")
+  notifications        Notification[]     @relation("UserNotification")
+
+  @@map("users")
+}
+
+model OtpCode {
+  id         String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email      String
+  code_hash  String
+  purpose    OtpPurpose
+  attempts   Int        @default(0)
+  expires_at DateTime   @default(dbgenerated("(now() + INTERVAL '10 minutes')")) @db.Timestamptz
+  used       Boolean    @default(false)
+  created_at DateTime   @default(now()) @db.Timestamptz
+
+  @@map("otp_codes")
+}
+
+model InviteToken {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  token      String   @unique
+  email      String
+  invited_by String   @db.Uuid
+  expires_at DateTime @default(dbgenerated("(now() + INTERVAL '24 hours')")) @db.Timestamptz
+  used       Boolean  @default(false)
+  created_at DateTime @default(now()) @db.Timestamptz
+
+  inviter    User     @relation("InvitedBy", fields: [invited_by], references: [id])
+
+  @@map("invite_tokens")
+}
+
+model Client {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name       String
+  created_by String?  @db.Uuid
+  is_active  Boolean  @default(true)
+  created_at DateTime @default(now()) @db.Timestamptz
+  updated_at DateTime @default(now()) @db.Timestamptz
+
+  creator    User?    @relation("ClientCreatedBy", fields: [created_by], references: [id])
+  entries    TimesheetEntry[]
+
+  @@map("clients")
+}
+
+model Category {
+  id         String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name       String
+  type       CategoryType @default(custom)
+  created_by String?      @db.Uuid
+  is_active  Boolean      @default(true)
+  created_at DateTime     @default(now()) @db.Timestamptz
+
+  creator    User?        @relation("CategoryCreatedBy", fields: [created_by], references: [id])
+  entries    TimesheetEntry[]
+
+  @@map("categories")
+}
+
+model TimesheetEntry {
+  id               String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id          String       @db.Uuid
+  work_date        DateTime     @db.Date
+  client_id        String?      @db.Uuid
+  category_id      String       @db.Uuid
+  task_title       String
+  description      String?
+  start_time       DateTime     @db.Time
+  end_time         DateTime     @db.Time
+  duration_minutes Int?         @map("duration_minutes")
+  output_status    OutputStatus
+  comment          String?
+  is_locked        Boolean      @default(false)
+  created_at       DateTime     @default(now()) @db.Timestamptz
+  updated_at       DateTime     @default(now()) @db.Timestamptz
+
+  user             User         @relation("UserTimesheet", fields: [user_id], references: [id], onDelete: Cascade)
+  client           Client?      @relation(fields: [client_id], references: [id])
+  category         Category     @relation(fields: [category_id], references: [id])
+
+  edit_requests    EditRequest[]
+
+  @@map("timesheet_entries")
+}
+
+model EditRequest {
+  id           String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  entry_id     String            @db.Uuid
+  requested_by String            @db.Uuid
+  reviewed_by  String?           @db.Uuid
+  reason       String
+  status       EditRequestStatus @default(pending)
+  created_at   DateTime          @default(now()) @db.Timestamptz
+  reviewed_at  DateTime?         @db.Timestamptz
+
+  entry        TimesheetEntry    @relation(fields: [entry_id], references: [id], onDelete: Cascade)
+  requester    User              @relation("RequestedBy", fields: [requested_by], references: [id])
+  reviewer     User?             @relation("ReviewedBy", fields: [reviewed_by], references: [id])
+
+  @@map("edit_requests")
+}
+
+model AuditLog {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id    String?  @db.Uuid
+  action     String
+  entity     String
+  entity_id  String?  @db.Uuid
+  payload    Json?
+  created_at DateTime @default(now()) @db.Timestamptz
+
+  user       User?    @relation("AuditUser", fields: [user_id], references: [id])
+
+  @@map("audit_logs")
+}
+
+model Notification {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id    String   @db.Uuid
+  title      String
+  body       String
+  is_read    Boolean  @default(false)
+  created_at DateTime @default(now()) @db.Timestamptz
+
+  user       User     @relation("UserNotification", fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
