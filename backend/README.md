@@ -43,6 +43,7 @@ This directory contains the production-grade REST API backend for the internal C
 backend/
   prisma/
     schema.prisma        # Database schema models
+    migration.sql        # Database schema migration script
   src/
     common/
       enums.js           # Frozen Plain JS enums (UserRole, OutputStatus, etc.)
@@ -132,13 +133,13 @@ All endpoints (except health and public auth routes) require an `Authorization: 
 * `PATCH /auth/credentials` [Protected] - Body: `{ username?, password? }`. Updates profile credentials (updates password in Supabase Auth and updates local bcrypt hash).
 
 ### 4.2 Timesheet Entries (`/entries`)
-* `GET /entries` - Paginated entries list. Scopes data based on role: Employees see own; Managers see own + direct reports; Admins see all.
-* `GET /entries/summary` - Aggregated entries logged hours grouped by date, category, and client.
-* `GET /entries/:id` - Fetch single entry details (restricted by team scoping).
-* `POST /entries` - Creates a timesheet entry. Forces `is_locked = true` and checks that `end_time > start_time`.
-* `POST /entries/bulk` - Atomic multi-task insertion. Calls `SELECT public.timesheet_bulk_submit($1::JSONB)` inside a transaction.
-* `PATCH /entries/:id` - Updates entry. Employees can only update if `is_locked = false`. Bypassed for Managers/Admins.
-* `DELETE /entries/:id` [Manager/Admin] - Deletes entry. Bypassed for Managers/Admins.
+* `GET /entries` - Paginated entries list. Scopes data based on role: Employees see own; Managers see own + direct reports + assigned entries; Admins see all.
+* `GET /entries/summary` - Aggregated entries logged hours grouped by date, category, and client (scoped same as list).
+* `GET /entries/:id` - Fetch single entry details (accessible if employee owns it, or if manager is their direct supervisor or is assigned to the entry).
+* `POST /entries` - Creates a timesheet entry. Expects `manager_ids` array. Forces `is_locked = true` and checks that `end_time > start_time`.
+* `POST /entries/bulk` - Atomic multi-task insertion. Calls `SELECT public.timesheet_bulk_submit($1::JSONB)` inside a transaction. Expects `manager_ids` for each task.
+* `PATCH /entries/:id` - Updates entry. Can optionally update `manager_ids`. Employees can only update if `is_locked = false`. Bypassed for Managers/Admins.
+* `DELETE /entries/:id` [Manager/Admin] - Deletes entry (restricted by direct report or assigned manager constraints).
 
 ### 4.3 Edit Requests (`/edit-requests`)
 * `POST /edit-requests` [Employee] - Body: `{ entry_id, reason }`. Requests edit on locked entries. Emails report's manager.
@@ -150,6 +151,7 @@ All endpoints (except health and public auth routes) require an `Authorization: 
 ### 4.4 Org & User Management (`/users`)
 * `GET /users` [Admin] - Paginated list of users.
 * `GET /users/team` [Manager/Admin] - Returns direct reports.
+* `GET /users/managers` [Protected - All roles] - Returns active users with the `manager` role. Used for select dropdowns.
 * `POST /users/invite` [Admin] - Body: `{ email }`. Invites a Manager (token active for 24 hours).
 * `PATCH /users/:id/role` [Admin] - Changes user role (promoted Admins clear `manager_id`).
 * `PATCH /users/:id/manager` [Admin] - Configures reporting manager.
