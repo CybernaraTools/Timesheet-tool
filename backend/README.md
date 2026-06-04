@@ -43,7 +43,6 @@ This directory contains the production-grade REST API backend for the internal C
 backend/
   prisma/
     schema.prisma        # Database schema models
-    migration.sql        # Database schema migration script
   src/
     common/
       enums.js           # Frozen Plain JS enums (UserRole, OutputStatus, etc.)

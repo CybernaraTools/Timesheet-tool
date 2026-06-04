@@ -77,8 +77,8 @@ Whenever database tables, columns, or triggers are modified in Supabase:
    ```bash
    pnpm run prisma:generate
    ```
-4. **Reference Local Migration Scripts:**
-   For custom table structures (like `timesheet_entry_managers`), triggers, custom SQL functions, and advanced Row-Level Security (RLS) policies, apply the DDL SQL commands stored in [migration.sql](file:///c:/Users/Sourjya%20Saha/Desktop/Timesheet-Portal/backend/prisma/migration.sql) inside the Supabase Dashboard SQL Editor.
+4. **Custom Database Migrations:**
+   For custom table structures (like `timesheet_entry_managers`), triggers, custom SQL functions, and advanced Row-Level Security (RLS) policies, apply the DDL SQL commands directly inside the Supabase Dashboard SQL Editor.
 
 ### 3.2 Audit Log Context Wrapping
 Mutating database queries (insert, update, delete) must capture the performing user's identity. Always wrap database writes in the `withUserContext` transaction helper:
