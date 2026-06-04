@@ -290,7 +290,7 @@ Aggregates task hours by work date, category, and client.
   *(Same structure as a single object inside the list entries response data)*
 
 ### 2.4 Create Single Entry
-Logs a single task. Sets `is_locked = true` upon creation.
+Logs a single task. Sets `is_locked = true` upon creation. Requires specifying target manager(s).
 * **Method:** `POST`
 * **Path:** `/entries`
 * **Access:** Protected
@@ -305,14 +305,15 @@ Logs a single task. Sets `is_locked = true` upon creation.
     "start_time": "09:00",
     "end_time": "09:30",
     "output_status": "done",
-    "comment": ""
+    "comment": "",
+    "manager_ids": ["4da767f2-1234-4a21-9988-cc772211bbdd"]
   }
   ```
 * **Expected Response (`201 Created`):**
-  *(Same structure as single formatted entry object)*
+  *(Same structure as single formatted entry object, including `manager_ids` array)*
 
 ### 2.5 Bulk Submit Entries
-Submits multiple tasks for a day in a single transaction via Postgres function.
+Submits multiple tasks for a day in a single transaction via Postgres function. Requires specifying target manager(s) for each task.
 * **Method:** `POST`
 * **Path:** `/entries/bulk`
 * **Access:** Protected
@@ -329,7 +330,8 @@ Submits multiple tasks for a day in a single transaction via Postgres function.
         "start_time": "14:00",
         "end_time": "15:00",
         "output_status": "done",
-        "comment": ""
+        "comment": "",
+        "manager_ids": ["4da767f2-1234-4a21-9988-cc772211bbdd"]
       },
       {
         "work_date": "2026-06-05",
@@ -340,7 +342,8 @@ Submits multiple tasks for a day in a single transaction via Postgres function.
         "start_time": "15:00",
         "end_time": "17:00",
         "output_status": "done",
-        "comment": ""
+        "comment": "",
+        "manager_ids": ["4da767f2-1234-4a21-9988-cc772211bbdd"]
       }
     ]
   }
@@ -357,7 +360,7 @@ Submits multiple tasks for a day in a single transaction via Postgres function.
   ```
 
 ### 2.6 Update Entry
-Allows editing timesheet details. Employees are blocked from editing if entry has `is_locked = true`.
+Allows editing timesheet details, including changing/adding manager assignments. Employees are blocked from editing if entry has `is_locked = true`.
 * **Method:** `PATCH`
 * **Path:** `/entries/:id`
 * **Access:** Protected (Locked check enforced for Employees)
@@ -365,11 +368,12 @@ Allows editing timesheet details. Employees are blocked from editing if entry ha
   ```json
   {
     "task_title": "Updated Standup Title",
-    "end_time": "09:45"
+    "end_time": "09:45",
+    "manager_ids": ["4da767f2-1234-4a21-9988-cc772211bbdd", "87654321-dcba-4321-dcba-ba0987654321"]
   }
   ```
 * **Expected Response (`200 OK`):**
-  *(Returns updated entry object)*
+  *(Returns updated entry object, including new `manager_ids` array)*
 * **Error Response - Entry Locked (`403 Forbidden`):**
   ```json
   {

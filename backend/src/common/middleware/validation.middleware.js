@@ -122,7 +122,7 @@ const validators = {
   },
 
   createEntry: (req, res, next) => {
-    const { work_date, client_id, category_id, task_title, description, start_time, end_time, output_status, comment } = req.body;
+    const { work_date, client_id, category_id, task_title, description, start_time, end_time, output_status, comment, manager_ids } = req.body;
     const errors = {};
 
     // Validate work_date
@@ -173,6 +173,15 @@ const validators = {
       errors.output_status = `Output status must be one of: ${Object.values(OutputStatus).join(', ')}.`;
     }
 
+    if (!manager_ids || !Array.isArray(manager_ids) || manager_ids.length === 0) {
+      errors.manager_ids = 'At least one manager must be specified.';
+    } else {
+      const invalidUuids = manager_ids.filter(id => !isUUID(id));
+      if (invalidUuids.length > 0) {
+        errors.manager_ids = 'All manager IDs must be valid UUIDs.';
+      }
+    }
+
     if (Object.keys(errors).length > 0) {
       return next(new AppError('VALIDATION_ERROR', 'Validation failed.', 400, errors));
     }
@@ -180,7 +189,7 @@ const validators = {
   },
 
   updateEntry: (req, res, next) => {
-    const { work_date, client_id, category_id, task_title, start_time, end_time, output_status } = req.body;
+    const { work_date, client_id, category_id, task_title, start_time, end_time, output_status, manager_ids } = req.body;
     const errors = {};
 
     if (work_date) {
@@ -230,6 +239,17 @@ const validators = {
 
     if (output_status && !isEnum(output_status, OutputStatus)) {
       errors.output_status = `Output status must be one of: ${Object.values(OutputStatus).join(', ')}.`;
+    }
+
+    if (manager_ids !== undefined) {
+      if (!Array.isArray(manager_ids) || manager_ids.length === 0) {
+        errors.manager_ids = 'At least one manager must be specified if manager_ids is provided.';
+      } else {
+        const invalidUuids = manager_ids.filter(id => !isUUID(id));
+        if (invalidUuids.length > 0) {
+          errors.manager_ids = 'All manager IDs must be valid UUIDs.';
+        }
+      }
     }
 
     if (Object.keys(errors).length > 0) {

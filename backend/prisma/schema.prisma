@@ -68,6 +68,7 @@ model User {
   reviewed_requests    EditRequest[]      @relation("ReviewedBy")
   audit_logs           AuditLog[]         @relation("AuditUser")
   notifications        Notification[]     @relation("UserNotification")
+  managed_entries      TimesheetEntryManager[] @relation("ManagerEntry")
 
   @@map("users")
 }
@@ -149,8 +150,20 @@ model TimesheetEntry {
   category         Category     @relation(fields: [category_id], references: [id])
 
   edit_requests    EditRequest[]
+  entry_managers   TimesheetEntryManager[]
 
   @@map("timesheet_entries")
+}
+
+model TimesheetEntryManager {
+  entry_id   String   @db.Uuid
+  manager_id String   @db.Uuid
+
+  entry      TimesheetEntry @relation(fields: [entry_id], references: [id], onDelete: Cascade)
+  manager    User           @relation("ManagerEntry", fields: [manager_id], references: [id], onDelete: Cascade)
+
+  @@id([entry_id, manager_id])
+  @@map("timesheet_entry_managers")
 }
 
 model EditRequest {

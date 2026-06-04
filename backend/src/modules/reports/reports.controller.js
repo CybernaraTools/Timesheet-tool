@@ -118,17 +118,36 @@ const reportsController = {
           where: { manager_id: req.user.id },
           select: { id: true }
         });
-        const allowedIds = [req.user.id, ...reports.map((r) => r.id)];
+        const directReportIds = reports.map((r) => r.id);
+        const allowedIds = [req.user.id, ...directReportIds];
+
+        const scopeConditions = [
+          { user_id: { in: allowedIds } },
+          { entry_managers: { some: { manager_id: req.user.id } } }
+        ];
 
         if (user_ids && Array.isArray(user_ids)) {
-          // Filter out user IDs the manager is not allowed to see
-          const unauthorized = user_ids.filter((id) => !allowedIds.includes(id));
-          if (unauthorized.length > 0) {
-            throw new AppError('FORBIDDEN', 'You can only export reports for yourself and your direct reports.', 403);
+          const directRequestedIds = user_ids.filter(uid => allowedIds.includes(uid));
+          const otherRequestedIds = user_ids.filter(uid => !allowedIds.includes(uid));
+
+          const userScopeConditions = [];
+          if (directRequestedIds.length > 0) {
+            userScopeConditions.push({ user_id: { in: directRequestedIds } });
           }
-          where.user_id = { in: user_ids };
+          if (otherRequestedIds.length > 0) {
+            userScopeConditions.push({
+              user_id: { in: otherRequestedIds },
+              entry_managers: { some: { manager_id: req.user.id } }
+            });
+          }
+
+          if (userScopeConditions.length > 0) {
+            where.OR = userScopeConditions;
+          } else {
+            where.id = '00000000-0000-0000-0000-000000000000'; // empty match
+          }
         } else {
-          where.user_id = { in: allowedIds };
+          where.OR = scopeConditions;
         }
       } else if (req.user.role === 'admin') {
         if (user_ids && Array.isArray(user_ids)) {
@@ -188,16 +207,36 @@ const reportsController = {
           where: { manager_id: req.user.id },
           select: { id: true }
         });
-        const allowedIds = [req.user.id, ...reports.map((r) => r.id)];
+        const directReportIds = reports.map((r) => r.id);
+        const allowedIds = [req.user.id, ...directReportIds];
+
+        const scopeConditions = [
+          { user_id: { in: allowedIds } },
+          { entry_managers: { some: { manager_id: req.user.id } } }
+        ];
 
         if (user_ids && Array.isArray(user_ids)) {
-          const unauthorized = user_ids.filter((id) => !allowedIds.includes(id));
-          if (unauthorized.length > 0) {
-            throw new AppError('FORBIDDEN', 'You can only export reports for yourself and your direct reports.', 403);
+          const directRequestedIds = user_ids.filter(uid => allowedIds.includes(uid));
+          const otherRequestedIds = user_ids.filter(uid => !allowedIds.includes(uid));
+
+          const userScopeConditions = [];
+          if (directRequestedIds.length > 0) {
+            userScopeConditions.push({ user_id: { in: directRequestedIds } });
           }
-          where.user_id = { in: user_ids };
+          if (otherRequestedIds.length > 0) {
+            userScopeConditions.push({
+              user_id: { in: otherRequestedIds },
+              entry_managers: { some: { manager_id: req.user.id } }
+            });
+          }
+
+          if (userScopeConditions.length > 0) {
+            where.OR = userScopeConditions;
+          } else {
+            where.id = '00000000-0000-0000-0000-000000000000'; // empty match
+          }
         } else {
-          where.user_id = { in: allowedIds };
+          where.OR = scopeConditions;
         }
       } else if (req.user.role === 'admin') {
         if (user_ids && Array.isArray(user_ids)) {
@@ -355,15 +394,25 @@ const reportsController = {
       endOfWeek.setDate(startOfWeek.getDate() + 6);
       endOfWeek.setHours(23, 59, 59, 999);
 
-      // Fetch entries for this week
+      // Fetch entries for this week with updated manager scoping
+      const whereCondition = {
+        work_date: {
+          gte: startOfWeek,
+          lte: endOfWeek
+        }
+      };
+
+      if (managerId) {
+        whereCondition.OR = [
+          { user_id: { in: teamUserIds } },
+          { entry_managers: { some: { manager_id: managerId } } }
+        ];
+      } else {
+        whereCondition.user_id = { in: teamUserIds };
+      }
+
       const weeklyEntries = await prisma.timesheetEntry.findMany({
-        where: {
-          user_id: { in: teamUserIds },
-          work_date: {
-            gte: startOfWeek,
-            lte: endOfWeek
-          }
-        },
+        where: whereCondition,
         include: {
           category: { select: { name: true } },
           client: { select: { name: true } }
@@ -410,7 +459,7 @@ const reportsController = {
         }
       });
 
-      // Calculate hours by day for the last 7 days (last 7 calendar dates up to today)
+      // Calculate hours by day for the last 7 days
       const hoursByDay = [];
       for (let i = 6; i >= 0; i--) {
         const d = new Date(today);
