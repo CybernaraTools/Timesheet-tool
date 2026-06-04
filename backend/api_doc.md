@@ -674,6 +674,22 @@ Returns the active session user's profile details.
 * **Expected Response (`200 OK`):**
   *(Same structure as `/auth/me`)*
 
+### 4.8 List Active Managers
+Retrieves a list of all active users with the `manager` role. Used by employees to select which managers to send their timesheet entries to.
+* **Method:** `GET`
+* **Path:** `/users/managers`
+* **Access:** Protected (All roles)
+* **Expected Response (`200 OK`):**
+  ```json
+  [
+    {
+      "id": "4da767f2-1234-4a21-9988-cc772211bbdd",
+      "full_name": "Jane Manager",
+      "email": "jane_manager@cybernara.com"
+    }
+  ]
+  ```
+
 ---
 
 ## 5. Clients & Categories Modules (`/clients`, `/categories`)

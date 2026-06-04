@@ -21,6 +21,27 @@ const usersController = {
     }
   },
 
+  // GET /users/managers (Protected, all roles)
+  listManagers: async (req, res, next) => {
+    try {
+      const managers = await prisma.user.findMany({
+        where: {
+          role: 'manager',
+          status: 'active'
+        },
+        select: {
+          id: true,
+          full_name: true,
+          email: true
+        },
+        orderBy: { full_name: 'asc' }
+      });
+      return res.status(200).json(managers);
+    } catch (err) {
+      next(err);
+    }
+  },
+
   // GET /users (Admin only)
   list: async (req, res, next) => {
     try {

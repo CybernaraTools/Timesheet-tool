@@ -9,6 +9,7 @@ const validators = require('../../common/middleware/validation.middleware');
 router.use(jwtAuth);
 
 router.get('/me', usersController.me);
+router.get('/managers', usersController.listManagers);
 router.get('/', requireRoles('admin'), usersController.list);
 router.get('/team', requireRoles('manager', 'admin'), usersController.team);
 router.post('/invite', requireRoles('admin'), validators.invite, usersController.invite);
