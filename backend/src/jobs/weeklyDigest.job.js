@@ -29,7 +29,7 @@ async function runWeeklyDigest() {
       // Find direct reports
       const reports = await prisma.user.findMany({
         where: {
-          manager_id: mgr.id,
+          managers: { some: { manager_id: mgr.id } },
           status: 'active'
         },
         select: {

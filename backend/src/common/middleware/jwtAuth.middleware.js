@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const prisma = require('../helpers/prisma');
+const supabase = require('../helpers/supabase');
 const AppError = require('../errors/AppError');
 
 async function jwtAuth(req, res, next) {
@@ -15,15 +16,39 @@ async function jwtAuth(req, res, next) {
       return next(new AppError('INTERNAL_SERVER_ERROR', 'JWT Secret is not configured on the server.', 500));
     }
 
-    let decoded;
+    let userId;
     try {
-      decoded = jwt.verify(token, jwtSecret);
+      const decodedToken = jwt.decode(token, { complete: true });
+      if (!decodedToken) {
+        return next(new AppError('UNAUTHORIZED', 'Access token is malformed.', 401));
+      }
+
+      const alg = decodedToken.header?.alg;
+
+      if (alg === 'HS256') {
+        let decodedPayload;
+        try {
+          // Try base64 decoded buffer first (standard for Supabase dashboard secrets)
+          const secretBuffer = Buffer.from(jwtSecret, 'base64');
+          decodedPayload = jwt.verify(token, secretBuffer);
+        } catch (err) {
+          // Fallback to raw string just in case
+          decodedPayload = jwt.verify(token, jwtSecret);
+        }
+        userId = decodedPayload.sub;
+      } else {
+        // Asymmetric algorithm (e.g. ES256). Delegate verification to Supabase Auth API
+        const { data: { user }, error: getUserError } = await supabase.auth.getUser(token);
+        if (getUserError || !user) {
+          console.error('[JWT Auth Error]: Supabase verification failed:', getUserError?.message || 'No user returned');
+          return next(new AppError('UNAUTHORIZED', 'Access token is expired or invalid.', 401));
+        }
+        userId = user.id;
+      }
     } catch (err) {
+      console.error('[JWT Auth Error]: Verification exception:', err.name, err.message);
       return next(new AppError('UNAUTHORIZED', 'Access token is expired or invalid.', 401));
     }
-
-    // Supabase JWT stores the user's UUID in the 'sub' claim
-    const userId = decoded.sub;
     if (!userId) {
       return next(new AppError('UNAUTHORIZED', 'Token claims are invalid.', 401));
     }

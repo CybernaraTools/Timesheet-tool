@@ -11,18 +11,24 @@ enum UserRole {
   employee
   manager
   admin
+
+  @@map("user_role")
 }
 
 enum UserStatus {
   pending
   active
   suspended
+
+  @@map("user_status")
 }
 
 enum OtpPurpose {
   signin
   signup
   invite
+
+  @@map("otp_purpose")
 }
 
 enum OutputStatus {
@@ -30,17 +36,23 @@ enum OutputStatus {
   in_progress
   blocked
   deferred
+
+  @@map("output_status")
 }
 
 enum CategoryType {
   system
   custom
+
+  @@map("category_type")
 }
 
 enum EditRequestStatus {
   pending
   approved
   rejected
+
+  @@map("edit_request_status")
 }
 
 model User {
@@ -50,15 +62,16 @@ model User {
   email         String     @unique
   role          UserRole   @default(employee)
   password_hash String?
-  manager_id    String?    @db.Uuid
   department    String?
   status        UserStatus @default(pending)
   created_via   String     @default("signup")
   created_at    DateTime   @default(now()) @db.Timestamptz
   updated_at    DateTime   @default(now()) @db.Timestamptz
 
-  manager       User?      @relation("UserManager", fields: [manager_id], references: [id])
-  reports       User[]     @relation("UserManager")
+  // managers: junction rows where this user is the EMPLOYEE
+  managers      UserManager[]  @relation("EmployeeManagers")
+  // reports: junction rows where this user is the MANAGER
+  reports       UserManager[]  @relation("ManagerReports")
 
   invite_tokens        InviteToken[]      @relation("InvitedBy")
   clients              Client[]           @relation("ClientCreatedBy")
@@ -66,11 +79,22 @@ model User {
   timesheet_entries    TimesheetEntry[]   @relation("UserTimesheet")
   edit_requests        EditRequest[]      @relation("RequestedBy")
   reviewed_requests    EditRequest[]      @relation("ReviewedBy")
-  audit_logs           AuditLog[]         @relation("AuditUser")
   notifications        Notification[]     @relation("UserNotification")
   managed_entries      TimesheetEntryManager[] @relation("ManagerEntry")
 
   @@map("users")
+}
+
+// Explicit many-to-many junction: which managers oversee which employees
+model UserManager {
+  employee_id  String   @db.Uuid
+  manager_id   String   @db.Uuid
+
+  employee     User     @relation("EmployeeManagers", fields: [employee_id], references: [id], onDelete: Cascade)
+  manager      User     @relation("ManagerReports",   fields: [manager_id],  references: [id], onDelete: Cascade)
+
+  @@id([employee_id, manager_id])
+  @@map("user_managers")
 }
 
 model OtpCode {
@@ -152,6 +176,9 @@ model TimesheetEntry {
   edit_requests    EditRequest[]
   entry_managers   TimesheetEntryManager[]
 
+  @@index([user_id])
+  @@index([work_date])
+  @@index([user_id, work_date])
   @@map("timesheet_entries")
 }
 
@@ -162,6 +189,7 @@ model TimesheetEntryManager {
   entry      TimesheetEntry @relation(fields: [entry_id], references: [id], onDelete: Cascade)
   manager    User           @relation("ManagerEntry", fields: [manager_id], references: [id], onDelete: Cascade)
 
+  @@index([manager_id])
   @@id([entry_id, manager_id])
   @@map("timesheet_entry_managers")
 }
@@ -180,22 +208,13 @@ model EditRequest {
   requester    User              @relation("RequestedBy", fields: [requested_by], references: [id])
   reviewer     User?             @relation("ReviewedBy", fields: [reviewed_by], references: [id])
 
+  @@index([requested_by])
+  @@index([reviewed_by])
+  @@index([entry_id])
   @@map("edit_requests")
 }
 
-model AuditLog {
-  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  user_id    String?  @db.Uuid
-  action     String
-  entity     String
-  entity_id  String?  @db.Uuid
-  payload    Json?
-  created_at DateTime @default(now()) @db.Timestamptz
 
-  user       User?    @relation("AuditUser", fields: [user_id], references: [id])
-
-  @@map("audit_logs")
-}
 
 model Notification {
   id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
@@ -207,5 +226,6 @@ model Notification {
 
   user       User     @relation("UserNotification", fields: [user_id], references: [id], onDelete: Cascade)
 
+  @@index([user_id, is_read])
   @@map("notifications")
 }

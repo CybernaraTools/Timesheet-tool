@@ -80,7 +80,31 @@ Whenever database tables, columns, or triggers are modified in Supabase:
 4. **Custom Database Migrations:**
    For custom table structures (like `timesheet_entry_managers`), triggers, custom SQL functions, and advanced Row-Level Security (RLS) policies, apply the DDL SQL commands directly inside the Supabase Dashboard SQL Editor.
 
-### 3.2 Audit Log Context Wrapping
+### 3.2 Database Backup & Cross-Project Migration
+If you need to migrate your database to a different region or back up your tables, follow this procedure to avoid constraint conflicts (such as `users_id_fkey` pointing to the internal Supabase `auth.users` table):
+
+1. **Back up Auth Users & Logins:**
+   Since the public `users` table depends on the `auth` schema, you must migrate Auth users first. Dump `auth.users` and `auth.identities`:
+   ```bash
+   pg_dump "YOUR_OLD_DATABASE_URL" -t "auth.users" -t "auth.identities" -f auth_backup.sql
+   ```
+2. **Back up Public Schema (Custom Tables):**
+   Dump only the custom tables to avoid conflicts with system tables on the new project:
+   ```bash
+   pg_dump "YOUR_OLD_DATABASE_URL" --schema=public --clean --if-exists -f backup.sql
+   ```
+3. **Restore Auth Users on the New Database:**
+   Restore the auth tables first (run it twice if foreign key validation fails due to table order):
+   ```bash
+   psql "YOUR_NEW_DATABASE_URL" -f auth_backup.sql
+   ```
+4. **Restore Main Database Tables:**
+   Once user auth accounts are present, restore the public schema:
+   ```bash
+   psql "YOUR_NEW_DATABASE_URL" -f backup.sql
+   ```
+
+### 3.3 Audit Log Context Wrapping
 Mutating database queries (insert, update, delete) must capture the performing user's identity. Always wrap database writes in the `withUserContext` transaction helper:
 ```js
 const withUserContext = require('../../common/helpers/currentUser');

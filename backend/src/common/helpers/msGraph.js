@@ -54,13 +54,17 @@ async function getAccessToken() {
 async function sendMail(toEmail, subject, bodyContent) {
   const senderEmail = process.env.OUTLOOK_SENDER_EMAIL;
 
-  console.log(`[Email Dispatcher]:
-  To: ${toEmail}
-  From: ${senderEmail || 'noreply@cybernara.com'}
-  Subject: ${subject}
-  Body:
-  ${bodyContent}
-  `);
+  if (process.env.NODE_ENV === 'development' || !senderEmail) {
+    console.log(`[Email Dispatcher]:
+    To: ${toEmail}
+    From: ${senderEmail || 'noreply@cybernara.com'}
+    Subject: ${subject}
+    Body:
+    ${bodyContent}
+    `);
+  } else {
+    console.log(`[Email Dispatcher]: Outbound mail queued for ${toEmail} (Subject: "${subject}")`);
+  }
 
   if (!senderEmail) {
     console.warn('[MS Graph Helper]: OUTLOOK_SENDER_EMAIL is not defined. Email logged to console.');

@@ -305,11 +305,18 @@ const validators = {
   },
 
   changeManager: (req, res, next) => {
-    const { manager_id } = req.body;
+    const { manager_ids } = req.body;
     const errors = {};
 
-    if (manager_id && !isUUID(manager_id)) {
-      errors.manager_id = 'Manager ID must be a valid UUID.';
+    if (manager_ids !== undefined) {
+      if (!Array.isArray(manager_ids)) {
+        errors.manager_ids = 'Manager IDs must be an array.';
+      } else {
+        const invalidUuids = manager_ids.filter(id => !isUUID(id));
+        if (invalidUuids.length > 0) {
+          errors.manager_ids = 'All Manager IDs must be valid UUIDs.';
+        }
+      }
     }
 
     if (Object.keys(errors).length > 0) {

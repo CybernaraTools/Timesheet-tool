@@ -15,6 +15,9 @@ const authController = {
 
       // Generates 6-digit code
       const code = Math.floor(100000 + Math.random() * 900000).toString();
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`\x1b[33m[DEV OTP] Email: ${cleanEmail} -> Code: ${code}\x1b[0m`);
+      }
       const codeHash = bcrypt.hashSync(code, 10);
       const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes from now
 
@@ -88,16 +91,22 @@ const authController = {
       }
 
       // Mark OTP as used (DB trigger will automatically delete it)
-      await prisma.otpCode.update({
-        where: { id: otpRecord.id },
-        data: { used: true }
-      });
+      // Except for the 'invite' purpose, which is marked used in inviteComplete
+      if (purpose !== 'invite') {
+        await prisma.otpCode.update({
+          where: { id: otpRecord.id },
+          data: { used: true }
+        });
+      }
 
       // Handle signin vs signup/invite
       if (purpose === 'signin') {
         // Find existing user in public.users
         const user = await prisma.user.findUnique({
-          where: { email: cleanEmail }
+          where: { email: cleanEmail },
+          include: {
+            managers: { select: { manager_id: true } }
+          }
         });
 
         if (!user) {
@@ -136,7 +145,8 @@ const authController = {
             email: user.email,
             role: user.role,
             username: user.username,
-            full_name: user.full_name
+            full_name: user.full_name,
+            manager_ids: user.managers?.map(m => m.manager_id) || []
           }
         });
       } else {
@@ -375,7 +385,10 @@ const authController = {
 
       // Find user in public.users
       const user = await prisma.user.findUnique({
-        where: { username: cleanUsername }
+        where: { username: cleanUsername },
+        include: {
+          managers: { select: { manager_id: true } }
+        }
       });
 
       if (!user) {
@@ -404,7 +417,8 @@ const authController = {
           email: user.email,
           role: user.role,
           username: user.username,
-          full_name: user.full_name
+          full_name: user.full_name,
+          manager_ids: user.managers?.map(m => m.manager_id) || []
         }
       });
     } catch (err) {
@@ -416,7 +430,10 @@ const authController = {
   me: async (req, res, next) => {
     try {
       const user = await prisma.user.findUnique({
-        where: { id: req.user.id }
+        where: { id: req.user.id },
+        include: {
+          managers: { select: { manager_id: true } }
+        }
       });
       if (!user) {
         throw new AppError('UNAUTHORIZED', 'User not found.', 401);
@@ -427,7 +444,7 @@ const authController = {
         role: user.role,
         username: user.username,
         full_name: user.full_name,
-        manager_id: user.manager_id,
+        manager_ids: user.managers?.map(m => m.manager_id) || [],
         department: user.department,
         status: user.status,
         created_via: user.created_via

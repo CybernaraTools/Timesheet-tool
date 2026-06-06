@@ -2,6 +2,7 @@ const prisma = require('../../common/helpers/prisma');
 const paginate = require('../../common/helpers/pagination');
 const AppError = require('../../common/errors/AppError');
 const withUserContext = require('../../common/helpers/currentUser');
+const notificationService = require('../notifications/notification.service');
 
 // Utility to validate UUID string via Regex
 const isUUID = (str) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
@@ -10,7 +11,7 @@ const isUUID = (str) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-
 function parseTimeToDate(timeStr) {
   if (!timeStr) return null;
   const [hours, minutes] = timeStr.split(':').map(Number);
-  const date = new Date(1970, 0, 1, hours, minutes, 0, 0);
+  const date = new Date(Date.UTC(1970, 0, 1, hours, minutes, 0, 0));
   return date;
 }
 
@@ -20,8 +21,8 @@ function formatTimeToStr(dateVal) {
   if (typeof dateVal === 'string') {
     return dateVal.substring(0, 5); // If database returns string like "09:00:00"
   }
-  const hours = dateVal.getHours().toString().padStart(2, '0');
-  const minutes = dateVal.getMinutes().toString().padStart(2, '0');
+  const hours = dateVal.getUTCHours().toString().padStart(2, '0');
+  const minutes = dateVal.getUTCMinutes().toString().padStart(2, '0');
   return `${hours}:${minutes}`;
 }
 
@@ -35,7 +36,6 @@ function formatEntry(entry) {
   };
   if (entry.entry_managers) {
     formatted.manager_ids = entry.entry_managers.map(m => m.manager_id);
-    delete formatted.entry_managers;
   }
   return formatted;
 }
@@ -54,7 +54,7 @@ const timesheetController = {
       } else if (req.user.role === 'manager') {
         // Managers can see own entries + direct reports + explicitly assigned entries
         const reports = await prisma.user.findMany({
-          where: { manager_id: req.user.id },
+          where: { managers: { some: { manager_id: req.user.id } } },
           select: { id: true }
         });
         const reportsIds = reports.map(r => r.id);
@@ -120,7 +120,12 @@ const timesheetController = {
           client: { select: { id: true, name: true } },
           category: { select: { id: true, name: true, type: true } },
           user: { select: { id: true, full_name: true, email: true } },
-          entry_managers: { select: { manager_id: true } }
+          entry_managers: {
+            select: {
+              manager_id: true,
+              manager: { select: { email: true } }
+            }
+          }
         },
         orderBy: { work_date: 'desc' }
       });
@@ -145,7 +150,7 @@ const timesheetController = {
         where.user_id = req.user.id;
       } else if (req.user.role === 'manager') {
         const reports = await prisma.user.findMany({
-          where: { manager_id: req.user.id },
+          where: { managers: { some: { manager_id: req.user.id } } },
           select: { id: true }
         });
         const reportsIds = reports.map(r => r.id);
@@ -207,39 +212,41 @@ const timesheetController = {
         }
       });
 
-      // Hydrate with category/client names
-      const hydratedData = await Promise.all(
-        summaryData.map(async (group) => {
-          let categoryName = 'Unknown';
-          let clientName = 'Internal / None';
+      // Extract unique category and client IDs
+      const categoryIds = [...new Set(summaryData.map(g => g.category_id).filter(Boolean))];
+      const clientIds = [...new Set(summaryData.map(g => g.client_id).filter(Boolean))];
 
-          if (group.category_id) {
-            const cat = await prisma.category.findUnique({
-              where: { id: group.category_id },
-              select: { name: true }
-            });
-            if (cat) categoryName = cat.name;
-          }
-
-          if (group.client_id) {
-            const cli = await prisma.client.findUnique({
-              where: { id: group.client_id },
-              select: { name: true }
-            });
-            if (cli) clientName = cli.name;
-          }
-
-          return {
-            work_date: group.work_date,
-            category_id: group.category_id,
-            category_name: categoryName,
-            client_id: group.client_id,
-            client_name: clientName,
-            total_minutes: group._sum.duration_minutes || 0,
-            total_hours: ((group._sum.duration_minutes || 0) / 60).toFixed(2)
-          };
+      // Fetch categories and clients in batch
+      const [categoriesList, clientsList] = await Promise.all([
+        prisma.category.findMany({
+          where: { id: { in: categoryIds } },
+          select: { id: true, name: true }
+        }),
+        prisma.client.findMany({
+          where: { id: { in: clientIds } },
+          select: { id: true, name: true }
         })
-      );
+      ]);
+
+      // Map to lookup maps
+      const categoryMap = new Map(categoriesList.map(c => [c.id, c.name]));
+      const clientMap = new Map(clientsList.map(c => [c.id, c.name]));
+
+      // Hydrate in-memory
+      const hydratedData = summaryData.map((group) => {
+        const categoryName = group.category_id ? (categoryMap.get(group.category_id) || 'Unknown') : 'Unknown';
+        const clientName = group.client_id ? (clientMap.get(group.client_id) || 'Internal / None') : 'Internal / None';
+
+        return {
+          work_date: group.work_date,
+          category_id: group.category_id,
+          category_name: categoryName,
+          client_id: group.client_id,
+          client_name: clientName,
+          total_minutes: group._sum.duration_minutes || 0,
+          total_hours: ((group._sum.duration_minutes || 0) / 60).toFixed(2)
+        };
+      });
 
       return res.status(200).json(hydratedData);
     } catch (err) {
@@ -257,7 +264,12 @@ const timesheetController = {
           client: { select: { id: true, name: true } },
           category: { select: { id: true, name: true, type: true } },
           user: { select: { id: true, full_name: true, email: true } },
-          entry_managers: { select: { manager_id: true } }
+          entry_managers: {
+            select: {
+              manager_id: true,
+              manager: { select: { email: true } }
+            }
+          }
         }
       });
 
@@ -271,7 +283,7 @@ const timesheetController = {
       } else if (req.user.role === 'manager') {
         const isAssignedManager = entry.entry_managers.some(m => m.manager_id === req.user.id);
         const directReport = await prisma.user.findFirst({
-          where: { id: entry.user_id, manager_id: req.user.id }
+          where: { id: entry.user_id, managers: { some: { manager_id: req.user.id } } }
         });
         if (entry.user_id !== req.user.id && !directReport && !isAssignedManager) {
           throw new AppError('FORBIDDEN', 'You do not have permission to view this entry.', 403);
@@ -288,6 +300,14 @@ const timesheetController = {
   create: async (req, res, next) => {
     try {
       const { work_date, client_id, category_id, task_title, description, start_time, end_time, output_status, comment, manager_ids } = req.body;
+
+      if (req.user.role === 'admin') {
+        throw new AppError('FORBIDDEN', 'Administrators are not permitted to submit timesheet entries.', 403);
+      }
+
+      if (req.user.role === 'manager' && manager_ids.includes(req.user.id)) {
+        throw new AppError('VALIDATION_ERROR', 'You cannot select yourself as a manager.', 400);
+      }
 
       // Validate manager roles
       const managers = await prisma.user.findMany({
@@ -321,10 +341,36 @@ const timesheetController = {
             }
           },
           include: {
-            entry_managers: { select: { manager_id: true } }
+            entry_managers: {
+              select: {
+                manager_id: true,
+                manager: { select: { email: true } }
+              }
+            }
           }
         });
       });
+
+      // Send notifications to assigned managers
+      try {
+        const userObj = await prisma.user.findUnique({
+          where: { id: req.user.id },
+          select: { full_name: true }
+        });
+        const submitterName = userObj?.full_name || 'An employee';
+        const formattedDate = new Date(work_date).toLocaleDateString('en-US');
+        for (const mId of manager_ids) {
+          await notificationService.send({
+            userId: mId,
+            title: 'New Timesheet Submitted',
+            body: `${submitterName} has submitted a timesheet entry for ${formattedDate}: "${task_title}".`,
+            sendEmail: true,
+            emailSubject: `Timesheet Submitted: ${submitterName} - ${formattedDate}`
+          });
+        }
+      } catch (notifyErr) {
+        console.error('[Timesheet Submit Notification Error]:', notifyErr.message);
+      }
 
       return res.status(201).json(formatEntry(entry));
     } catch (err) {
@@ -335,6 +381,10 @@ const timesheetController = {
   // POST /entries/bulk
   createBulk: async (req, res, next) => {
     try {
+      if (req.user.role === 'admin') {
+        throw new AppError('FORBIDDEN', 'Administrators are not permitted to submit timesheet entries.', 403);
+      }
+
       const { tasks } = req.body;
 
       if (!tasks || !Array.isArray(tasks) || tasks.length === 0) {
@@ -394,6 +444,10 @@ const timesheetController = {
 
       // Collect all manager IDs from all tasks and verify their role
       const allManagerIds = [...new Set(tasks.flatMap(t => t.manager_ids || []).filter(Boolean))];
+      if (req.user.role === 'manager' && allManagerIds.includes(req.user.id)) {
+        throw new AppError('VALIDATION_ERROR', 'You cannot select yourself as a manager.', 400);
+      }
+
       if (allManagerIds.length > 0) {
         const managers = await prisma.user.findMany({
           where: {
@@ -430,6 +484,41 @@ const timesheetController = {
         return rawRes[0].result;
       });
 
+      // Send notifications to assigned managers
+      try {
+        const userObj = await prisma.user.findUnique({
+          where: { id: req.user.id },
+          select: { full_name: true }
+        });
+        const submitterName = userObj?.full_name || 'An employee';
+
+        // Group by manager_id to prevent redundant notifications
+        const managerSubmissions = {};
+        tasks.forEach(task => {
+          const mIds = task.manager_ids || [];
+          const taskDate = new Date(task.work_date).toLocaleDateString('en-US');
+          mIds.forEach(mid => {
+            if (!managerSubmissions[mid]) {
+              managerSubmissions[mid] = new Set();
+            }
+            managerSubmissions[mid].add(taskDate);
+          });
+        });
+
+        for (const [mId, datesSet] of Object.entries(managerSubmissions)) {
+          const datesStr = Array.from(datesSet).join(', ');
+          await notificationService.send({
+            userId: mId,
+            title: 'Bulk Timesheet Submitted',
+            body: `${submitterName} has submitted bulk timesheet entries for dates: ${datesStr}.`,
+            sendEmail: true,
+            emailSubject: `Bulk Timesheet Submitted: ${submitterName}`
+          });
+        }
+      } catch (notifyErr) {
+        console.error('[Bulk Timesheet Notification Error]:', notifyErr.message);
+      }
+
       return res.status(201).json({
         message: 'Bulk timesheet entries submitted successfully.',
         entry_ids: resultJson
@@ -463,7 +552,7 @@ const timesheetController = {
           where: { entry_id: id, manager_id: req.user.id }
         });
         const directReport = await prisma.user.findFirst({
-          where: { id: entry.user_id, manager_id: req.user.id }
+          where: { id: entry.user_id, managers: { some: { manager_id: req.user.id } } }
         });
         if (entry.user_id !== req.user.id && !directReport && !isAssigned) {
           throw new AppError('FORBIDDEN', 'You do not have permission to edit this entry.', 403);
@@ -471,6 +560,10 @@ const timesheetController = {
       }
 
       if (manager_ids) {
+        if (req.user.role === 'manager' && manager_ids.includes(req.user.id)) {
+          throw new AppError('VALIDATION_ERROR', 'You cannot select yourself as a manager.', 400);
+        }
+
         // Validate manager roles
         const managers = await prisma.user.findMany({
           where: {
@@ -527,7 +620,12 @@ const timesheetController = {
             })
           },
           include: {
-            entry_managers: { select: { manager_id: true } }
+            entry_managers: {
+              select: {
+                manager_id: true,
+                manager: { select: { email: true } }
+              }
+            }
           }
         });
       });
@@ -554,7 +652,7 @@ const timesheetController = {
           where: { entry_id: id, manager_id: req.user.id }
         });
         const directReport = await prisma.user.findFirst({
-          where: { id: entry.user_id, manager_id: req.user.id }
+          where: { id: entry.user_id, managers: { some: { manager_id: req.user.id } } }
         });
         if (entry.user_id !== req.user.id && !directReport && !isAssigned) {
           throw new AppError('FORBIDDEN', 'You do not have permission to delete this entry.', 403);

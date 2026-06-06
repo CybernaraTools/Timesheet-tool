@@ -116,6 +116,26 @@ NODE_ENV=development
 ALLOWED_ORIGINS=http://localhost:3000
 ```
 
+### 3.1 Database Location & Latency Optimization
+* **Production Database:** Hosted on a Supabase PostgreSQL instance in the **Mumbai, India (`ap-south-1`)** region. Keeping the database geographically close to the users reduces network query latency from ~250ms (Sydney) down to **10ms – 30ms**.
+* **URL-Encoding Password:** If your database password contains special characters (like `@` in `timesheet@cybernara`), they **must be URL-encoded** in your `DATABASE_URL` (e.g., `@` becomes `%40`) to prevent Node.js and Prisma connection pool parsers from crashing.
+  * *Example:* `postgresql://postgres.frqlyyijdmkzykxtfizb:timesheet%40cybernara@aws-1-ap-south-1...`
+
+### 3.2 Running a Local Database for Development
+To get **$<1\text{ms}$** database query speed during local testing, you can run a local PostgreSQL instance:
+1. **Using Docker (Recommended):**
+   ```bash
+   docker run --name timesheet-postgres -e POSTGRES_PASSWORD=mysecretpassword -p 5432:5432 -d postgres
+   ```
+2. **Update your `.env` connection string:**
+   ```env
+   DATABASE_URL=postgresql://postgres:mysecretpassword@localhost:5432/timesheet?schema=public
+   ```
+3. **Synchronize the database schema:**
+   ```bash
+   npx prisma db push
+   ```
+
 ---
 
 ## 4. API Endpoints Reference

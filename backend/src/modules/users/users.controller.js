@@ -59,6 +59,19 @@ const usersController = {
         page,
         limit,
         where,
+        include: {
+          managers: {
+            select: {
+              manager_id: true,
+              manager: {
+                select: {
+                  full_name: true,
+                  email: true
+                }
+              }
+            }
+          }
+        },
         orderBy: { email: 'asc' }
       });
 
@@ -71,14 +84,29 @@ const usersController = {
   // GET /users/team (Manager/Admin)
   team: async (req, res, next) => {
     try {
+      if (req.user.role === 'admin' && !req.query.manager_id) {
+        // Return all active users (managers/employees) except admins
+        const allActiveUsers = await prisma.user.findMany({
+          where: {
+            status: 'active',
+            role: { not: 'admin' }
+          },
+          include: {
+            managers: {
+              include: {
+                manager: { select: { id: true, full_name: true, email: true } }
+              }
+            }
+          },
+          orderBy: { full_name: 'asc' }
+        });
+        return res.status(200).json(allActiveUsers);
+      }
+
       let managerId = req.user.id;
 
       if (req.user.role === 'admin') {
-        const queryManagerId = req.query.manager_id;
-        if (!queryManagerId) {
-          throw new AppError('VALIDATION_ERROR', 'manager_id query parameter is required for administrators.', 400);
-        }
-        managerId = queryManagerId;
+        managerId = req.query.manager_id;
       }
 
       // Verify the manager exists and has manager role
@@ -95,7 +123,18 @@ const usersController = {
       }
 
       const teamMembers = await prisma.user.findMany({
-        where: { manager_id: managerId },
+        where: {
+          managers: { some: { manager_id: managerId } },
+          status: 'active',
+          role: { not: 'admin' }
+        },
+        include: {
+          managers: {
+            include: {
+              manager: { select: { id: true, full_name: true, email: true } }
+            }
+          }
+        },
         orderBy: { full_name: 'asc' }
       });
 
@@ -121,6 +160,9 @@ const usersController = {
 
       // Generate cryptographically random token
       const token = crypto.randomBytes(32).toString('hex');
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`\x1b[33m[DEV INVITE] Email: ${cleanEmail} -> Link: http://localhost:3000/invite/${token}\x1b[0m`);
+      }
       const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours from now
 
       // Save invite token to DB
@@ -134,9 +176,15 @@ const usersController = {
         }
       });
 
+      // Resolve base frontend URL from ALLOWED_ORIGINS (e.g. http://localhost:3000)
+      const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000')
+        .split(',')
+        .map(o => o.trim());
+      const frontendUrl = allowedOrigins[0] || 'http://localhost:3000';
+
       // Send invite email via MS Graph API
       const subject = 'You have been invited to the Timesheet Portal';
-      const body = `You have been invited to join the Timesheet Portal at Cybernara.\n\nClick the link below to accept your invitation (expires in 24 hours):\nhttps://app.cybernara.com/invite/${token}`;
+      const body = `You have been invited to join the Timesheet Portal at Cybernara.\n\nClick the link below to accept your invitation (expires in 24 hours):\n${frontendUrl}/invite/${token}`;
 
       const sent = await sendMail(cleanEmail, subject, body);
       if (!sent) {
@@ -165,15 +213,16 @@ const usersController = {
       }
 
       const updateData = { role };
-      if (role === 'admin') {
-        // Clear manager_id (Admins cannot have a manager_id, DB constraint)
-        updateData.manager_id = null;
-      }
-
       const updated = await withUserContext(req.user.id, async (tx) => {
+        if (role === 'admin') {
+          // Clear manager assignments (Admins cannot have managers)
+          await tx.userManager.deleteMany({
+            where: { employee_id: id }
+          });
+        }
         return await tx.user.update({
           where: { id },
-          data: updateData
+          data: { role }
         });
       });
 
@@ -187,7 +236,7 @@ const usersController = {
   changeManager: async (req, res, next) => {
     try {
       const { id } = req.params;
-      const { manager_id } = req.body;
+      const { manager_ids } = req.body;
 
       const targetUser = await prisma.user.findUnique({ where: { id } });
       if (!targetUser) {
@@ -198,26 +247,51 @@ const usersController = {
         throw new AppError('VALIDATION_ERROR', 'Admins cannot be assigned a manager.', 400);
       }
 
-      if (manager_id) {
-        if (manager_id === id) {
+      if (manager_ids) {
+        if (!Array.isArray(manager_ids)) {
+          throw new AppError('VALIDATION_ERROR', 'manager_ids must be an array.', 400);
+        }
+        if (manager_ids.includes(id)) {
           throw new AppError('VALIDATION_ERROR', 'A user cannot be their own manager.', 400);
         }
 
-        // Validate target manager has role = 'manager' or 'admin'
-        const manager = await prisma.user.findUnique({ where: { id: manager_id } });
-        if (!manager) {
-          throw new AppError('NOT_FOUND', 'Target manager not found.', 404);
-        }
-        if (manager.role !== 'manager' && manager.role !== 'admin') {
-          throw new AppError('VALIDATION_ERROR', 'Target manager must be a Manager or Admin.', 400);
+        // Validate target managers have role = 'manager' or 'admin'
+        const targetManagers = await prisma.user.findMany({
+          where: {
+            id: { in: manager_ids },
+            role: { in: ['manager', 'admin'] }
+          }
+        });
+        if (targetManagers.length !== manager_ids.length) {
+          throw new AppError('VALIDATION_ERROR', 'One or more target managers are invalid or do not have manager/admin role.', 400);
         }
       }
 
       const updated = await withUserContext(req.user.id, async (tx) => {
-        return await tx.user.update({
+        // Clear existing manager assignments
+        await tx.userManager.deleteMany({
+          where: { employee_id: id }
+        });
+
+        // Insert new manager assignments
+        if (manager_ids && manager_ids.length > 0) {
+          await tx.userManager.createMany({
+            data: manager_ids.map(mid => ({
+              employee_id: id,
+              manager_id: mid
+            }))
+          });
+        }
+
+        return await tx.user.findUnique({
           where: { id },
-          data: {
-            manager_id: manager_id || null
+          include: {
+            managers: {
+              select: {
+                manager_id: true,
+                manager: { select: { id: true, full_name: true, email: true } }
+              }
+            }
           }
         });
       });

@@ -1,97 +1,226 @@
+const ExcelJS    = require('exceljs');
 const PDFDocument = require('pdfkit');
-const prisma = require('../../common/helpers/prisma');
-const supabase = require('../../common/helpers/supabase');
-const AppError = require('../../common/errors/AppError');
+const prisma      = require('../../common/helpers/prisma');
+const supabase    = require('../../common/helpers/supabase');
+const AppError    = require('../../common/errors/AppError');
 
-// Helper to format time strings from DB
-function formatTimeToStr(dateVal) {
+// Format a DB time value to 12-hour "hh:mm:ss AM/PM"
+function formatTime12h(dateVal) {
   if (!dateVal) return '';
+  let hours, minutes, seconds;
   if (typeof dateVal === 'string') {
-    return dateVal.substring(0, 5);
+    const parts = dateVal.split(':');
+    hours   = parseInt(parts[0], 10);
+    minutes = parseInt(parts[1] || '0', 10);
+    seconds = parseInt(parts[2] || '0', 10);
+  } else {
+    hours   = dateVal.getUTCHours();
+    minutes = dateVal.getUTCMinutes();
+    seconds = dateVal.getUTCSeconds();
   }
-  const hours = dateVal.getHours().toString().padStart(2, '0');
-  const minutes = dateVal.getMinutes().toString().padStart(2, '0');
-  return `${hours}:${minutes}`;
+  const period = hours >= 12 ? 'PM' : 'AM';
+  const h12    = hours % 12 === 0 ? 12 : hours % 12;
+  return `${String(h12).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')} ${period}`;
 }
 
-// Generate CSV string from entries
-function buildCSV(entries) {
-  const headers = [
-    'Employee',
-    'Date',
-    'Client',
-    'Category',
-    'Task Title',
-    'Description',
-    'Start Time',
-    'End Time',
-    'Duration (Hours)',
-    'Output Status',
-    'Comment'
+// Format minutes → "X hr Y min" / "X hr" / "Y min"
+function formatDuration(minutes) {
+  if (!minutes && minutes !== 0) return '';
+  const hrs  = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  if (hrs > 0 && mins > 0) return `${hrs} hr ${mins} min`;
+  if (hrs > 0) return `${hrs} hr`;
+  return `${mins} min`;
+}
+
+// Format a Date to "29/May/2026"
+function formatDateLabel(dateVal) {
+  const d = dateVal instanceof Date ? dateVal : new Date(dateVal);
+  const day   = String(d.getUTCDate()).padStart(2, '0');
+  const month = d.toLocaleString('en-US', { month: 'long', timeZone: 'UTC' });
+  const year  = d.getUTCFullYear();
+  return `${day}/${month}/${year}`;
+}
+
+// Day name from a Date
+function getDayName(dateVal) {
+  const d = dateVal instanceof Date ? dateVal : new Date(dateVal);
+  return d.toLocaleString('en-US', { weekday: 'long', timeZone: 'UTC' });
+}
+
+// Shared cell style helpers
+const COLS = 10; // total columns A–J
+
+function applyFill(row, color) {
+  row.eachCell({ includeEmpty: true }, (cell) => {
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: color } };
+  });
+}
+
+function applyFont(row, opts = {}) {
+  row.eachCell({ includeEmpty: true }, (cell) => {
+    cell.font = { name: 'Calibri', size: 11, ...opts };
+  });
+}
+
+function applyAlignment(row, horizontal = 'left') {
+  row.eachCell({ includeEmpty: true }, (cell) => {
+    cell.alignment = { horizontal, vertical: 'middle', wrapText: false };
+  });
+}
+
+function applyBorder(row, color = 'FFD0D0D0') {
+  const side = { style: 'thin', color: { argb: color } };
+  row.eachCell({ includeEmpty: true }, (cell) => {
+    cell.border = { top: side, bottom: side, left: side, right: side };
+  });
+}
+
+// Build a styled XLSX workbook and return a Buffer
+async function buildXLSX(entries) {
+  const workbook  = new ExcelJS.Workbook();
+  const sheet     = workbook.addWorksheet('Timesheet');
+
+  // ── Column widths (fixes ########) ─────────────────────────────────────────
+  sheet.columns = [
+    { key: 'A', width: 10  }, // Sr No
+    { key: 'B', width: 18  }, // Client
+    { key: 'C', width: 26  }, // Task
+    { key: 'D', width: 20  }, // Category
+    { key: 'E', width: 38  }, // Ticket/Ref/Description
+    { key: 'F', width: 16  }, // Start Time
+    { key: 'G', width: 16  }, // End Time
+    { key: 'H', width: 14  }, // Duration
+    { key: 'I', width: 14  }, // Output/Status
+    { key: 'J', width: 24  }, // Comment
   ];
 
-  const escapeCsv = (val) => {
-    if (val === null || val === undefined) return '""';
-    return `"${String(val).replace(/"/g, '""')}"`;
-  };
+  // ── 1. Collect unique employees ────────────────────────────────────────────
+  const employeeMap = new Map();
+  entries.forEach((e) => {
+    if (!employeeMap.has(e.user_id)) {
+      const managerEmails = (e.user.managers || [])
+        .map((m) => m.manager?.email)
+        .filter(Boolean)
+        .join(', ');
+      employeeMap.set(e.user_id, {
+        name: e.user.full_name,
+        email: e.user.email || '',
+        managerEmails
+      });
+    }
+  });
 
-  const rows = entries.map((e) => [
-    e.user.full_name,
-    e.work_date.toISOString().split('T')[0],
-    e.client ? e.client.name : 'Internal / None',
-    e.category.name,
-    e.task_title,
-    e.description || '',
-    formatTimeToStr(e.start_time),
-    formatTimeToStr(e.end_time),
-    (e.duration_minutes / 60).toFixed(2),
-    e.output_status,
-    e.comment || ''
-  ]);
+  // ── 2. Employee info header block ──────────────────────────────────────────
+  // Dark navy background (#1B2A4A), white bold text
+  employeeMap.forEach((info) => {
+    // Row: "Employee:  Name" | email
+    const empRow = sheet.addRow(['Employee:  ' + info.name, info.email, '', '', '', '', '', '', '', '']);
+    empRow.height = 22;
+    applyFill(empRow, 'FF1B2A4A');
+    applyFont(empRow, { color: { argb: 'FFFFFFFF' }, bold: true, size: 11 });
+    applyAlignment(empRow);
+    // Make "Employee: Name" span cols A-E visually (merge)
+    sheet.mergeCells(`A${empRow.number}:E${empRow.number}`);
 
-  return [headers.join(','), ...rows.map((r) => r.map(escapeCsv).join(','))].join('\n');
+    if (info.managerEmails) {
+      const mgrRow = sheet.addRow(['Submitted To:  ' + info.managerEmails, '', '', '', '', '', '', '', '', '']);
+      mgrRow.height = 20;
+      applyFill(mgrRow, 'FF243352');
+      applyFont(mgrRow, { color: { argb: 'FFBBCCE4' }, size: 10 });
+      applyAlignment(mgrRow);
+      sheet.mergeCells(`A${mgrRow.number}:J${mgrRow.number}`);
+    }
+  });
+
+  // Blank separator
+  const blankRow = sheet.addRow(['', '', '', '', '', '', '', '', '', '']);
+  blankRow.height = 8;
+
+  // ── 3. Group entries by date ───────────────────────────────────────────────
+  const groups    = {};
+  const dateOrder = [];
+  entries.forEach((e) => {
+    const iso = e.work_date instanceof Date
+      ? e.work_date.toISOString().split('T')[0]
+      : String(e.work_date).split('T')[0];
+    if (!groups[iso]) { groups[iso] = []; dateOrder.push(iso); }
+    groups[iso].push(e);
+  });
+
+  // ── 4. Emit one section per date ───────────────────────────────────────────
+  const colHeaders = ['Sr No', 'Client', 'Task', 'Category', 'Ticket/Ref/Description', 'Start Time', 'End Time', 'Duration', 'Output/Status', 'Comment'];
+
+  dateOrder.forEach((iso) => {
+    const dayEntries = groups[iso];
+
+    // Date + Day header row — cobalt blue (#1C4587) white bold
+    const dateLabel = formatDateLabel(iso);
+    const dayLabel  = getDayName(iso);
+    const dateValues = [`Date: ${dateLabel}`, '', '', '', '', `Day: ${dayLabel}`, '', '', '', ''];
+    const dateRow = sheet.addRow(dateValues);
+    dateRow.height = 22;
+    applyFill(dateRow, 'FF1C4587');
+    applyFont(dateRow, { color: { argb: 'FFFFFFFF' }, bold: true, size: 11 });
+    applyAlignment(dateRow);
+    // Merge A:E for the date label, F:J for the day label
+    sheet.mergeCells(`A${dateRow.number}:E${dateRow.number}`);
+    sheet.mergeCells(`F${dateRow.number}:J${dateRow.number}`);
+
+    // Column headers row — dark charcoal (#2D2D2D) white bold
+    const hdrRow = sheet.addRow(colHeaders);
+    hdrRow.height = 20;
+    applyFill(hdrRow, 'FF2D2D2D');
+    applyFont(hdrRow, { color: { argb: 'FFFFFFFF' }, bold: true, size: 10 });
+    applyAlignment(hdrRow, 'center');
+    applyBorder(hdrRow, 'FF444444');
+
+    // Data rows — alternating white / very light grey
+    dayEntries.forEach((e, idx) => {
+      const isEven = idx % 2 === 0;
+      const rowData = [
+        idx + 1,
+        e.client ? e.client.name : '',
+        e.task_title,
+        e.category.name,
+        e.description || '',
+        formatTime12h(e.start_time),  // stored as plain text string → no ########
+        formatTime12h(e.end_time),
+        formatDuration(e.duration_minutes),
+        e.output_status
+          ? e.output_status.charAt(0).toUpperCase() + e.output_status.slice(1).replace(/_/g, ' ')
+          : '',
+        e.comment || ''
+      ];
+      const dataRow = sheet.addRow(rowData);
+      dataRow.height = 18;
+      applyFill(dataRow, isEven ? 'FFFAFAFA' : 'FFF0F4FA');
+      applyFont(dataRow, { color: { argb: 'FF1A1A1A' }, size: 10 });
+      applyBorder(dataRow, 'FFE0E0E0');
+
+      // Force time cells (F & G) to text so Excel never misinterprets as time values
+      ['F', 'G'].forEach((col) => {
+        const cell = dataRow.getCell(col);
+        cell.numFmt = '@';  // @ = text format
+        cell.value  = String(cell.value || '');
+      });
+
+      // Right-align Sr No
+      dataRow.getCell('A').alignment = { horizontal: 'center', vertical: 'middle' };
+    });
+
+    // Small gap between date sections
+    const gapRow = sheet.addRow(['', '', '', '', '', '', '', '', '', '']);
+    gapRow.height = 6;
+  });
+
+  return workbook.xlsx.writeBuffer();
 }
 
 // Helper to upload file buffer to Supabase Storage and get a 1-hour signed URL
 async function uploadAndGetSignedUrl(fileName, buffer, contentType) {
-  const bucketName = 'reports';
-
-  // Ensure bucket exists by checking/creating it
-  const { data: buckets, error: listError } = await supabase.storage.listBuckets();
-  if (listError) {
-    throw new Error(`Failed to list buckets: ${listError.message}`);
-  }
-
-  const reportsBucketExists = buckets.some((b) => b.name === bucketName);
-  if (!reportsBucketExists) {
-    const { error: createError } = await supabase.storage.createBucket(bucketName, {
-      public: false
-    });
-    if (createError) {
-      throw new Error(`Failed to create bucket: ${createError.message}`);
-    }
-  }
-
-  // Upload file
-  const { error: uploadError } = await supabase.storage.from(bucketName).upload(fileName, buffer, {
-    contentType,
-    upsert: true
-  });
-
-  if (uploadError) {
-    throw new Error(`Failed to upload to storage: ${uploadError.message}`);
-  }
-
-  // Generate 1-hour signed URL (3600 seconds)
-  const { data: urlData, error: urlError } = await supabase.storage
-    .from(bucketName)
-    .createSignedUrl(fileName, 3600);
-
-  if (urlError) {
-    throw new Error(`Failed to create signed URL: ${urlError.message}`);
-  }
-
-  return urlData.signedUrl;
+  const base64 = buffer.toString('base64');
+  return `data:${contentType};base64,${base64}`;
 }
 
 const reportsController = {
@@ -115,7 +244,7 @@ const reportsController = {
         throw new AppError('FORBIDDEN', 'Employees are not permitted to export reports.', 403);
       } else if (req.user.role === 'manager') {
         const reports = await prisma.user.findMany({
-          where: { manager_id: req.user.id },
+          where: { managers: { some: { manager_id: req.user.id } } },
           select: { id: true }
         });
         const directReportIds = reports.map((r) => r.id);
@@ -163,22 +292,35 @@ const reportsController = {
         where.client_id = { in: client_ids };
       }
 
-      // 4. Fetch entries
+      // 4. Fetch entries (include user email + their managers' emails)
       const entries = await prisma.timesheetEntry.findMany({
         where,
         include: {
-          client: { select: { name: true } },
+          client:   { select: { name: true } },
           category: { select: { name: true } },
-          user: { select: { full_name: true } }
+          user: {
+            select: {
+              full_name: true,
+              email:     true,
+              managers: {
+                select: {
+                  manager: { select: { email: true } }
+                }
+              }
+            }
+          }
         },
         orderBy: [{ work_date: 'asc' }, { start_time: 'asc' }]
       });
 
-      const csvContent = buildCSV(entries);
-      const csvBuffer = Buffer.from(csvContent, 'utf-8');
-      const fileName = `timesheet-export-${Date.now()}.csv`;
+      const xlsxBuffer = await buildXLSX(entries);
+      const fileName    = `timesheet-export-${Date.now()}.xlsx`;
 
-      const signedUrl = await uploadAndGetSignedUrl(fileName, csvBuffer, 'text/csv');
+      const signedUrl = await uploadAndGetSignedUrl(
+        fileName,
+        xlsxBuffer,
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      );
 
       return res.status(200).json({ url: signedUrl });
     } catch (err) {
@@ -204,7 +346,7 @@ const reportsController = {
         throw new AppError('FORBIDDEN', 'Employees are not permitted to export reports.', 403);
       } else if (req.user.role === 'manager') {
         const reports = await prisma.user.findMany({
-          where: { manager_id: req.user.id },
+          where: { managers: { some: { manager_id: req.user.id } } },
           select: { id: true }
         });
         const directReportIds = reports.map((r) => r.id);
@@ -282,9 +424,9 @@ const reportsController = {
 
         // Summary Statistics
         const totalMinutes = entries.reduce((sum, e) => sum + (e.duration_minutes || 0), 0);
-        const totalHours = (totalMinutes / 60).toFixed(2);
+        const totalHoursFormatted = formatDuration(totalMinutes);
         
-        doc.fontSize(12).fillColor('#0f172a').text(`Total Hours Logged: ${totalHours} hrs`, { bold: true });
+        doc.fontSize(12).fillColor('#0f172a').text(`Total Duration Logged: ${totalHoursFormatted}`, { bold: true });
         doc.text(`Total Tasks: ${entries.length}`);
         doc.moveDown(1.5);
 
@@ -294,8 +436,8 @@ const reportsController = {
         doc.text('Date', 50, y, { width: 70, bold: true });
         doc.text('Employee', 120, y, { width: 100, bold: true });
         doc.text('Client/Category', 220, y, { width: 120, bold: true });
-        doc.text('Task Title', 340, y, { width: 170, bold: true });
-        doc.text('Hours', 510, y, { width: 50, bold: true, align: 'right' });
+        doc.text('Task Title', 340, y, { width: 150, bold: true });
+        doc.text('Duration', 490, y, { width: 72, bold: true, align: 'right' });
         doc.moveDown(0.5);
         doc.strokeColor('#cbd5e1').lineWidth(0.5).moveTo(50, doc.y).lineTo(562, doc.y).stroke();
         doc.moveDown(0.5);
@@ -311,8 +453,8 @@ const reportsController = {
             doc.text('Date', 50, y, { width: 70 });
             doc.text('Employee', 120, y, { width: 100 });
             doc.text('Client/Category', 220, y, { width: 120 });
-            doc.text('Task Title', 340, y, { width: 170 });
-            doc.text('Hours', 510, y, { width: 50, align: 'right' });
+            doc.text('Task Title', 340, y, { width: 150 });
+            doc.text('Duration', 490, y, { width: 72, align: 'right' });
             doc.moveDown(0.5);
             doc.strokeColor('#cbd5e1').lineWidth(0.5).moveTo(50, doc.y).lineTo(562, doc.y).stroke();
             doc.moveDown(0.5);
@@ -327,10 +469,10 @@ const reportsController = {
           
           const clientCat = `${e.client ? e.client.name : 'Internal'} / ${e.category.name}`;
           doc.text(clientCat, 220, currentY, { width: 120 });
-          doc.text(e.task_title, 340, currentY, { width: 170 });
+          doc.text(e.task_title, 340, currentY, { width: 150 });
           
-          const hrs = (e.duration_minutes / 60).toFixed(2);
-          doc.text(hrs, 510, currentY, { width: 50, align: 'right' });
+          const durStr = formatDuration(e.duration_minutes);
+          doc.text(durStr, 490, currentY, { width: 72, align: 'right' });
           
           doc.moveDown(0.8);
         });
@@ -365,34 +507,73 @@ const reportsController = {
       // Determine the user scope
       let teamUserIds = [];
       if (managerId) {
-        // Manager's team includes direct reports + manager themselves
+        // Manager's team includes direct reports + manager themselves (excluding admins)
         const reports = await prisma.user.findMany({
-          where: { manager_id: managerId },
+          where: {
+            managers: { some: { manager_id: managerId } },
+            role: { not: 'admin' }
+          },
           select: { id: true }
         });
-        teamUserIds = [managerId, ...reports.map((r) => r.id)];
+        const managerSelf = await prisma.user.findUnique({
+          where: { id: managerId },
+          select: { role: true }
+        });
+        teamUserIds = reports.map((r) => r.id);
+        if (managerSelf && managerSelf.role !== 'admin') {
+          teamUserIds.push(managerId);
+        }
       } else {
-        // Admin system-wide: fetch all active user IDs
+        // Admin system-wide: fetch all active user IDs (except administrators)
         const allUsers = await prisma.user.findMany({
-          where: { status: 'active' },
+          where: {
+            status: 'active',
+            role: { not: 'admin' }
+          },
           select: { id: true }
         });
         teamUserIds = allUsers.map((u) => u.id);
       }
 
+      // Validate target user if user_id is provided
+      const targetUserId = req.query.user_id;
+      if (targetUserId) {
+        if (req.user.role === 'admin') {
+          const targetUser = await prisma.user.findUnique({
+            where: { id: targetUserId },
+            select: { role: true }
+          });
+          if (!targetUser || targetUser.role === 'admin') {
+            throw new AppError('FORBIDDEN', 'Cannot view statistics for administrators.', 403);
+          }
+        } else if (req.user.role === 'manager') {
+          const isSelf = targetUserId === req.user.id;
+          const isDirectReport = teamUserIds.includes(targetUserId);
+          if (!isSelf && !isDirectReport) {
+            throw new AppError('FORBIDDEN', 'You do not have permission to view statistics for this user.', 403);
+          }
+        }
+      }
+
       // Date calculations
-      const today = new Date();
+      const localToday = new Date(Date.now() + 330 * 60000); // Shift Date.now() by 330 minutes to get local IST time
       
       // Calculate start of current week (Monday)
-      const currentDay = today.getDay(); // 0 is Sunday, 1 is Monday...
+      const currentDay = localToday.getUTCDay(); // 0 is Sunday, 1 is Monday...
       const distanceToMonday = currentDay === 0 ? -6 : 1 - currentDay;
-      const startOfWeek = new Date(today);
-      startOfWeek.setDate(today.getDate() + distanceToMonday);
-      startOfWeek.setHours(0, 0, 0, 0);
+      const startOfWeek = new Date(Date.UTC(
+        localToday.getUTCFullYear(),
+        localToday.getUTCMonth(),
+        localToday.getUTCDate() + distanceToMonday,
+        0, 0, 0, 0
+      ));
 
-      const endOfWeek = new Date(startOfWeek);
-      endOfWeek.setDate(startOfWeek.getDate() + 6);
-      endOfWeek.setHours(23, 59, 59, 999);
+      const endOfWeek = new Date(Date.UTC(
+        startOfWeek.getUTCFullYear(),
+        startOfWeek.getUTCMonth(),
+        startOfWeek.getUTCDate() + 6,
+        23, 59, 59, 999
+      ));
 
       // Fetch entries for this week with updated manager scoping
       const whereCondition = {
@@ -402,7 +583,9 @@ const reportsController = {
         }
       };
 
-      if (managerId) {
+      if (targetUserId) {
+        whereCondition.user_id = targetUserId;
+      } else if (managerId) {
         whereCondition.OR = [
           { user_id: { in: teamUserIds } },
           { entry_managers: { some: { manager_id: managerId } } }
@@ -462,8 +645,11 @@ const reportsController = {
       // Calculate hours by day for the last 7 days
       const hoursByDay = [];
       for (let i = 6; i >= 0; i--) {
-        const d = new Date(today);
-        d.setDate(today.getDate() - i);
+        const d = new Date(Date.UTC(
+          localToday.getUTCFullYear(),
+          localToday.getUTCMonth(),
+          localToday.getUTCDate() - i
+        ));
         const dateStr = d.toISOString().split('T')[0];
 
         // Filter entries for this date

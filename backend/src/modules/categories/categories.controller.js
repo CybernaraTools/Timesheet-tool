@@ -6,12 +6,18 @@ const categoriesController = {
   // GET /categories
   listActive: async (req, res, next) => {
     try {
+      const { include_inactive } = req.query;
+      const where = {};
+      if (include_inactive !== 'true') {
+        where.is_active = true;
+      }
       const categories = await prisma.category.findMany({
-        where: { is_active: true },
+        where,
         select: {
           id: true,
           name: true,
-          type: true
+          type: true,
+          is_active: true
         },
         orderBy: { name: 'asc' }
       });

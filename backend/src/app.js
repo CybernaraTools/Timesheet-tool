@@ -12,7 +12,6 @@ const clientsRoutes = require('./modules/clients/clients.routes');
 const categoriesRoutes = require('./modules/categories/categories.routes');
 const reportsRoutes = require('./modules/reports/reports.routes');
 const notificationsRoutes = require('./modules/notifications/notification.routes');
-const auditRoutes = require('./modules/audit/audit.routes');
 
 const app = express();
 
@@ -64,7 +63,6 @@ app.use('/clients', clientsRoutes);
 app.use('/categories', categoriesRoutes);
 app.use('/reports', reportsRoutes);
 app.use('/notifications', notificationsRoutes);
-app.use('/audit-logs', auditRoutes);
 
 // 5. Global Error Handler Middleware
 app.use(globalErrorHandler);
