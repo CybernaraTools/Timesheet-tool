@@ -16,5 +16,6 @@ router.post('/invite', requireRoles('admin'), validators.invite, usersController
 router.patch('/:id/role', requireRoles('admin'), validators.changeRole, usersController.changeRole);
 router.patch('/:id/manager', requireRoles('admin'), validators.changeManager, usersController.changeManager);
 router.patch('/:id/status', requireRoles('admin'), validators.changeStatus, usersController.changeStatus);
+router.patch('/:id/department', requireRoles('manager', 'admin'), usersController.changeDepartment);
 
 module.exports = router;

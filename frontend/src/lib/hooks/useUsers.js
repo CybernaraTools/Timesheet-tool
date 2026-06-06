@@ -1,19 +1,30 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import * as usersApi from '../api/users';
+import { useAuthStore } from '../stores/authStore';
 
 export function useUsers(params = {}, options = {}) {
+  const { user } = useAuthStore();
+  const role = user?.role || 'employee';
+  const isAdmin = role === 'admin';
+
   return useQuery({
     queryKey: ['users', params],
     queryFn: () => usersApi.listUsers(params),
-    ...options
+    ...options,
+    enabled: !!(options.enabled !== false && typeof window !== 'undefined' && isAdmin)
   });
 }
  
 export function useTeamMembers(params = {}, options = {}) {
+  const { user } = useAuthStore();
+  const role = user?.role || 'employee';
+  const isManagerOrAdmin = ['manager', 'admin'].includes(role);
+
   return useQuery({
     queryKey: ['users', 'team', params],
     queryFn: () => usersApi.listTeamMembers(params),
-    ...options
+    ...options,
+    enabled: !!(options.enabled !== false && typeof window !== 'undefined' && isManagerOrAdmin)
   });
 }
 
@@ -64,6 +75,17 @@ export function useChangeUserStatus() {
 
   return useMutation({
     mutationFn: ({ id, status }) => usersApi.changeUserStatus(id, status),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+    },
+  });
+}
+
+export function useChangeUserDepartment() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, department }) => usersApi.changeUserDepartment(id, department),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] });
     },

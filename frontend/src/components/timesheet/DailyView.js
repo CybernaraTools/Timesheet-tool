@@ -88,6 +88,36 @@ export default function DailyView() {
     return true;
   });
 
+  const showCreateButton = 
+    role === 'employee' || 
+    (role === 'manager' && (
+      (selectedUserId === user?.id) || 
+      (!selectedUserId && activeTimesheetTab === 'my_logs')
+    ));
+
+  const emptyDescription = useMemo(() => {
+    if (selectedUserId) {
+      if (selectedUserId === user?.id) {
+        return `You haven't logged any entries for ${selectedDate}.`;
+      }
+      const targetUser = teamMembers.find(m => m.id === selectedUserId);
+      const displayName = targetUser?.full_name || targetUser?.username || targetUser?.email || 'The user';
+      return `${displayName} hasn't logged any entries for ${selectedDate}.`;
+    }
+
+    if (role === 'admin') {
+      return `No timesheet entries found for ${selectedDate}.`;
+    }
+
+    if (role === 'manager') {
+      return activeTimesheetTab === 'my_logs'
+        ? `You haven't logged any entries for ${selectedDate}.`
+        : `No timesheet entries have been submitted to you for ${selectedDate}.`;
+    }
+
+    return `You haven't logged any entries for ${selectedDate}.`;
+  }, [selectedUserId, user, selectedDate, role, activeTimesheetTab, teamMembers]);
+
   const getDurationMinutes = (start, end) => {
     if (!start || !end) return 0;
     const [startH, startM] = start.split(':').map(Number);
@@ -265,17 +295,9 @@ export default function DailyView() {
         <EmptyState
           icon={Layers}
           title="No Timesheet Entries"
-          description={
-            role === 'admin' 
-              ? `No timesheet entries found for ${selectedDate}.` 
-              : role === 'manager' && !userId
-                ? activeTimesheetTab === 'my_logs'
-                  ? `You haven't logged any entries for ${selectedDate}.`
-                  : `No timesheet entries have been submitted to you for ${selectedDate}.`
-                : `You haven't logged any entries for ${selectedDate}.`
-          }
+          description={emptyDescription}
           action={
-            role !== 'admin' && (
+            showCreateButton && (
               <Link href={`/timesheet/bulk?date=${selectedDate}`}>
                 <Button variant="primary" className="text-xs">
                   Create first entry

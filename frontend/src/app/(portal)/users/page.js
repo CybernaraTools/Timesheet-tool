@@ -221,7 +221,7 @@ export default function UsersPage() {
                             <MultiSelect
                               options={managers
                                 .filter(m => m.id !== u.id)
-                                .map(m => ({ value: m.id, label: m.email }))}
+                                .map(m => ({ value: m.id, label: `${m.full_name} · ${m.email}` }))}
                               selectedValues={u.managers?.map(m => m.manager_id) || []}
                               onChange={(newIds) => handleChangeManager(u.id, newIds)}
                               placeholder="No Manager (Direct)"

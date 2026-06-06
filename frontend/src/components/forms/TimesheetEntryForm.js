@@ -202,13 +202,13 @@ export default function TimesheetEntryForm({ entry, selectedDate, onSuccess, onC
           disabled={isSubmitting}
           className={[
             "w-full rounded-lg px-[14px] py-[10px]",
-            "bg-[#1f1e1b] text-[#faf9f5]",
+            "bg-[#faf9f5] dark:bg-[#181715] text-[#141413] dark:text-[#faf9f5]",
             "text-[15px] font-normal leading-relaxed",
             "placeholder:text-[#6c6a64]",
             "border",
             errors.description
               ? "border-[#c64545] focus:border-[#c64545] focus:ring-[#c64545]/15"
-              : "border-[#3c3c3c] focus:border-[#cc785c] focus:ring-[#cc785c]/15",
+              : "border-[#e6dfd8] dark:border-[#3c3c3c] focus:border-[#cc785c] focus:ring-[#cc785c]/15",
             "focus:ring-[3px] focus:outline-none",
             "transition-colors duration-150",
             "disabled:opacity-50 disabled:cursor-not-allowed resize-none",
@@ -267,19 +267,18 @@ export default function TimesheetEntryForm({ entry, selectedDate, onSuccess, onC
             onChange={(vals) => setValue('manager_ids', vals, { shouldValidate: true })}
             error={errors.manager_ids?.message}
             placeholder="Select Managers"
-            options={filteredManagers.map(mgr => ({ value: mgr.id, label: mgr.email }))}
+            options={filteredManagers.map(mgr => ({ value: mgr.id, label: `${mgr.full_name} · ${mgr.email}` }))}
             disabled={isSubmitting}
           />
         )}
       </div>
 
       {/* Actions */}
-      <div className="flex justify-end gap-3 pt-5 border-t border-[#3c3c3c]">
+      <div className="flex justify-end gap-3 pt-5 border-t border-hairline">
         <Button
           variant="ghost"
           onClick={onCancel}
           disabled={isSubmitting}
-          className="text-[#a09d96] hover:text-[#faf9f5] hover:bg-[#252320]"
         >
           Cancel
         </Button>

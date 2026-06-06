@@ -328,6 +328,45 @@ const usersController = {
     } catch (err) {
       next(err);
     }
+  },
+
+  // PATCH /users/:id/department (Manager/Admin)
+  changeDepartment: async (req, res, next) => {
+    try {
+      const { id } = req.params;
+      const { department } = req.body;
+
+      const targetUser = await prisma.user.findUnique({ where: { id } });
+      if (!targetUser) {
+        throw new AppError('NOT_FOUND', 'User not found.', 404);
+      }
+
+      // Managers can only change department/team for themselves or their direct reports
+      if (req.user.role === 'manager') {
+        const isReport = await prisma.userManager.findUnique({
+          where: {
+            employee_id_manager_id: {
+              employee_id: id,
+              manager_id: req.user.id
+            }
+          }
+        });
+        if (!isReport && id !== req.user.id) {
+          throw new AppError('FORBIDDEN', 'You can only update team names for your direct reports.', 403);
+        }
+      }
+
+      const updated = await withUserContext(req.user.id, async (tx) => {
+        return await tx.user.update({
+          where: { id },
+          data: { department: department ? department.trim() : null }
+        });
+      });
+
+      return res.status(200).json(updated);
+    } catch (err) {
+      next(err);
+    }
   }
 };
 

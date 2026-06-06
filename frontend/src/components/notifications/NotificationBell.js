@@ -68,7 +68,7 @@ export default function NotificationBell() {
 
       {/* Dropdown Card */}
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-80 bg-surface-card border border-hairline rounded-md shadow-2xl z-50">
+        <div className="absolute right-[-120px] sm:right-0 mt-2 w-80 max-w-[calc(100vw-2rem)] bg-surface-card border border-hairline rounded-md shadow-2xl z-50">
           <div className="flex items-center justify-between p-4 border-b border-hairline">
             <h3 className="text-sm font-bold tracking-[1px] text-primary-text">
               Notifications

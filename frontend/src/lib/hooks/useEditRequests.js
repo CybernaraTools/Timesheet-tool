@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import * as editRequestsApi from '../api/editRequests';
+import { useAuthStore } from '../stores/authStore';
 
 export function useSubmitEditRequest() {
   const queryClient = useQueryClient();
@@ -14,10 +15,15 @@ export function useSubmitEditRequest() {
 }
 
 export function useEditRequests(params = {}, options = {}) {
+  const { user } = useAuthStore();
+  const role = user?.role || 'employee';
+  const isManagerOrAdmin = ['manager', 'admin'].includes(role);
+
   return useQuery({
     queryKey: ['editRequests', params],
     queryFn: () => editRequestsApi.listEditRequests(params),
-    ...options
+    ...options,
+    enabled: !!(options.enabled !== false && typeof window !== 'undefined' && isManagerOrAdmin)
   });
 }
 
@@ -30,10 +36,15 @@ export function useOwnEditRequests(options = {}) {
 }
 
 export function useMyApprovedEditRequests(params = {}, options = {}) {
+  const { user } = useAuthStore();
+  const role = user?.role || 'employee';
+  const isManagerOrAdmin = ['manager', 'admin'].includes(role);
+
   return useQuery({
     queryKey: ['editRequests', 'my-approved', params],
     queryFn: () => editRequestsApi.listMyApprovedEditRequests(params),
-    ...options
+    ...options,
+    enabled: !!(options.enabled !== false && typeof window !== 'undefined' && isManagerOrAdmin)
   });
 }
 

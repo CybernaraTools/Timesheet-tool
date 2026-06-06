@@ -1,4 +1,5 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 
 /**
@@ -12,8 +13,13 @@ import { X } from "lucide-react";
  * Close button: `button-icon-circular` (36px, circular, dark elevated bg).
  */
 export default function Modal({ isOpen, onClose, title, children, size = "md" }) {
+  const [mounted, setMounted] = useState(false);
   const modalRef = useRef(null);
   const previousActiveElement = useRef(null);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const maxWidthMap = {
     sm: "max-w-sm",
@@ -85,8 +91,9 @@ export default function Modal({ isOpen, onClose, title, children, size = "md" })
   }, [isOpen]);
 
   if (!isOpen) return null;
+  if (!mounted) return null;
 
-  return (
+  return createPortal(
     /* Portal layer */
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
 
@@ -109,9 +116,8 @@ export default function Modal({ isOpen, onClose, title, children, size = "md" })
           "w-full",
           maxWidthMap[size] ?? maxWidthMap.md,
           "max-h-[88vh] flex flex-col",
-          /* Dark surface matching `product-mockup-card-dark` */
-          "bg-[#181715] dark:bg-[#181715]",
-          "border border-[#3c3c3c]",
+          "bg-surface-card",
+          "border border-hairline",
           "rounded-2xl",             /* rounded-xl = 16px */
           "shadow-2xl",
           "animate-in fade-in zoom-in-95 duration-200",
@@ -120,12 +126,12 @@ export default function Modal({ isOpen, onClose, title, children, size = "md" })
       >
 
         {/* Header */}
-        <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-[#3c3c3c] shrink-0">
+        <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-hairline shrink-0">
           {title && (
             /* h2 → gets Cormorant Garamond via global CSS — elegant serif title */
             <h2
               id="modal-title"
-              className="text-[22px] text-[#faf9f5] leading-snug pr-4"
+              className="text-[22px] text-primary-text leading-snug pr-4"
               style={{ fontWeight: 400, letterSpacing: "-0.3px" }}
             >
               {title}
@@ -139,8 +145,8 @@ export default function Modal({ isOpen, onClose, title, children, size = "md" })
               "ml-auto shrink-0",
               "flex items-center justify-center",
               "w-9 h-9 rounded-full",
-              "bg-[#252320] text-[#a09d96]",
-              "hover:bg-[#2b2925] hover:text-[#faf9f5]",
+              "bg-canvas text-muted-text border border-hairline",
+              "hover:bg-surface-soft hover:text-primary-text",
               "transition-colors duration-150",
               "focus:outline-none focus-visible:ring-2 focus-visible:ring-[#cc785c]/40",
             ].join(" ")}
@@ -150,11 +156,12 @@ export default function Modal({ isOpen, onClose, title, children, size = "md" })
           </button>
         </div>
 
-        {/* Scrollable body — `dark` class forces dark: variants in child components */}
-        <div className="dark flex-1 overflow-y-auto px-6 py-5 text-[#a09d96] text-[14px] leading-relaxed">
+        {/* Scrollable body */}
+        <div className="flex-1 overflow-y-auto px-6 py-5 text-body-text text-[14px] leading-relaxed">
           {children}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

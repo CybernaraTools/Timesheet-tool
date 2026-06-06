@@ -399,7 +399,7 @@ export default function BulkEntryForm() {
                         onChange={(vals) => handleFieldChange(row.id, 'manager_ids', vals)}
                         error={rowErrors.manager_ids}
                         placeholder="Select Managers"
-                        options={filteredManagers.map(mgr => ({ value: mgr.id, label: mgr.email }))}
+                        options={filteredManagers.map(mgr => ({ value: mgr.id, label: `${mgr.full_name} · ${mgr.email}` }))}
                         disabled={isSubmitting}
                         searchable={true}
                       />

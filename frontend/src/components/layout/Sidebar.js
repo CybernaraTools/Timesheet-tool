@@ -59,7 +59,7 @@ export default function Sidebar() {
       <div className={`flex items-center justify-between border-b border-hairline transition-all duration-300 ${isCollapsed ? 'p-3' : 'p-5'}`}>
         {!isCollapsed && (
           <Link href="/dashboard" className="flex flex-col">
-            <span className="text-xl font-bold tracking-tight text-primary-text">Cybernara</span>
+            <span className="text-xl font-serif-display text-primary-text">Cybernara</span>
             <span className="text-[10px] uppercase tracking-[1.5px] text-muted-text font-semibold">Timesheet Portal</span>
           </Link>
         )}
@@ -101,8 +101,8 @@ export default function Sidebar() {
               title={isCollapsed ? label : undefined}
               className={`flex items-center gap-3 px-3 py-2.5 text-sm transition-all duration-150 rounded-md ${
                 isActive
-                  ? 'bg-surface-card text-primary-text font-medium border-l-2 border-[#cc785c]'
-                  : 'text-muted-text hover:bg-surface-soft hover:text-primary-text border-l-2 border-transparent'
+                  ? 'bg-surface-card text-primary-text font-medium'
+                  : 'text-muted-text hover:bg-surface-soft hover:text-primary-text'
               } ${isCollapsed ? 'justify-center' : ''}`}
             >
               <Icon size={18} className={isActive ? 'text-[#cc785c] shrink-0' : 'text-muted-text shrink-0'} />

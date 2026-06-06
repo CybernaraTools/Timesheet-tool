@@ -46,7 +46,7 @@ export default function PortalLayout({ children }) {
     return (
       <div className="min-h-screen bg-canvas flex flex-col items-center justify-center">
         <Spinner size="lg" />
-        <p className="text-sm font-light text-muted-text mt-4 uppercase tracking-[1px]">
+        <p className="font-light text-muted-text mt-4">
           Securing session...
         </p>
       </div>

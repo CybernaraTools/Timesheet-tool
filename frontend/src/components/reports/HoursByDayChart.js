@@ -44,7 +44,7 @@ export default function HoursByDayChart({ data = [], title = "Daily work allocat
   return (
     <div className="bg-surface-card border border-hairline p-6 rounded-md space-y-4">
       {title && (
-        <h3 className="text-xs font-bold uppercase tracking-[1.5px] text-muted-text">
+        <h3 className=" font-semibold   text-muted-text">
           {title}
         </h3>
       )}

@@ -54,3 +54,9 @@ export const changeUserStatus = (id, status) =>
     method: 'PATCH',
     body: JSON.stringify({ status }),
   });
+
+export const changeUserDepartment = (id, department) =>
+  apiClient(`/users/${id}/department`, {
+    method: 'PATCH',
+    body: JSON.stringify({ department }),
+  });
