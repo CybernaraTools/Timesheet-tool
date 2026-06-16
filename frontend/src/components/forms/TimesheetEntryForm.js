@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -14,6 +14,7 @@ import Input from '../ui/Input';
 import Select from '../ui/Select';
 import MultiSelect from '../ui/MultiSelect';
 import Spinner from '../ui/Spinner';
+import CreateCategoryModal from '../modals/CreateCategoryModal';
 
 // Zod Schema
 const entrySchema = z.object({
@@ -53,6 +54,7 @@ export default function TimesheetEntryForm({ entry, selectedDate, onSuccess, onC
 
   const createEntry = useCreateEntry();
   const updateEntry = useUpdateEntry();
+  const [isAddCategoryOpen, setIsAddCategoryOpen] = useState(false);
 
   const isEdit = !!entry;
 
@@ -156,16 +158,29 @@ export default function TimesheetEntryForm({ entry, selectedDate, onSuccess, onC
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Category */}
-        <Select
-          label="Category"
-          error={errors.category_id?.message}
-          options={[
-            { value: '', label: 'Select a category' },
-            ...categories.map(c => ({ value: c.id, label: c.name }))
-          ]}
-          {...register('category_id')}
-          disabled={isSubmitting}
-        />
+        <div className="flex flex-col gap-1.5 w-full">
+          <div className="flex items-center justify-between">
+            <label className="text-[13px] font-medium text-[#252523] dark:text-[#e6e4df] select-none leading-none">
+              Category *
+            </label>
+            <button
+              type="button"
+              onClick={() => setIsAddCategoryOpen(true)}
+              className="text-xs text-[#cc785c] hover:underline flex items-center gap-1 font-medium bg-transparent border-0 cursor-pointer"
+            >
+              <Plus size={10} /> Add new category
+            </button>
+          </div>
+          <Select
+            error={errors.category_id?.message}
+            options={[
+              { value: '', label: 'Select a category' },
+              ...categories.map(c => ({ value: c.id, label: c.name }))
+            ]}
+            {...register('category_id')}
+            disabled={isSubmitting}
+          />
+        </div>
 
         {/* Client (Optional) */}
         <Select
@@ -290,6 +305,14 @@ export default function TimesheetEntryForm({ entry, selectedDate, onSuccess, onC
           {isEdit ? 'Save changes' : 'Create entry'}
         </Button>
       </div>
+      {/* Create Category Modal */}
+      <CreateCategoryModal
+        isOpen={isAddCategoryOpen}
+        onClose={() => setIsAddCategoryOpen(false)}
+        onSuccess={(newCat) => {
+          setValue('category_id', newCat.id, { shouldValidate: true });
+        }}
+      />
     </form>
   );
 }

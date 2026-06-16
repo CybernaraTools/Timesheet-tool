@@ -8,7 +8,7 @@ const requireRoles = require('../../common/middleware/roleGuard.middleware');
 router.use(jwtAuth);
 
 router.get('/', categoriesController.listActive);
-router.post('/', requireRoles('manager', 'admin'), categoriesController.create);
+router.post('/', requireRoles('employee', 'manager', 'admin'), categoriesController.create);
 router.patch('/:id', requireRoles('manager', 'admin'), categoriesController.update);
 router.delete('/:id', requireRoles('admin'), categoriesController.delete);
 

@@ -15,6 +15,7 @@ import { SkeletonTable, SkeletonCard } from '../ui/Skeleton';
 import Select from '../ui/Select';
 import TimesheetEntryForm from '../forms/TimesheetEntryForm';
 import EditRequestForm from '../forms/EditRequestForm';
+import CreateCategoryModal from '../modals/CreateCategoryModal';
 import { useSearchParams } from 'next/navigation';
 import { subDays, addDays, format, parseISO } from 'date-fns';
 import { useAuthStore } from '@/lib/stores/authStore';
@@ -33,6 +34,7 @@ export default function DailyView() {
 
   // Modals state
   const [isAddEditOpen, setIsAddEditOpen] = useState(false);
+  const [isAddCategoryOpen, setIsAddCategoryOpen] = useState(false);
   const [editingEntry, setEditingEntry] = useState(null);
   const [isRequestEditOpen, setIsRequestEditOpen] = useState(false);
   const [requestEditId, setRequestEditId] = useState(null);
@@ -230,6 +232,14 @@ export default function DailyView() {
             </button>
           </div>
 
+          <Button
+            variant="outline"
+            className="h-10 text-xs sm:text-sm"
+            onClick={() => setIsAddCategoryOpen(true)}
+          >
+            <Plus size={14} /> Add new category
+          </Button>
+
           {role !== 'admin' && (
             <Link href={`/timesheet/bulk?date=${selectedDate}`}>
               <Button
@@ -361,6 +371,12 @@ export default function DailyView() {
           onCancel={() => setIsRequestEditOpen(false)}
         />
       </Modal>
+
+      {/* Create Category Modal */}
+      <CreateCategoryModal
+        isOpen={isAddCategoryOpen}
+        onClose={() => setIsAddCategoryOpen(false)}
+      />
     </div>
   );
 }

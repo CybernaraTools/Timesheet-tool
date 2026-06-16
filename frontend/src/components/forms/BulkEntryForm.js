@@ -13,6 +13,7 @@ import Input from '../ui/Input';
 import Select from '../ui/Select';
 import MultiSelect from '../ui/MultiSelect';
 import Spinner from '../ui/Spinner';
+import CreateCategoryModal from '../modals/CreateCategoryModal';
 
 export default function BulkEntryForm() {
   const router = useRouter();
@@ -49,6 +50,8 @@ export default function BulkEntryForm() {
 
   const [rows, setRows] = useState(() => [createEmptyRow()]);
   const [errors, setErrors] = useState({}); // format: { [rowId]: { field: 'message' } }
+  const [isAddCategoryOpen, setIsAddCategoryOpen] = useState(false);
+  const [categorySuccessCallback, setCategorySuccessCallback] = useState(null);
 
   // Auto-select manager(s) of the employee by default once loaded
   useEffect(() => {
@@ -79,23 +82,32 @@ export default function BulkEntryForm() {
   };
 
   const handleFieldChange = (rowId, field, value) => {
-    setRows(rows.map(row => {
+    console.log(`[BulkEntryForm] handleFieldChange rowId=${rowId} field=${field} value=${value}`);
+    setRows(prevRows => prevRows.map(row => {
       if (row.id === rowId) {
         return { ...row, [field]: value };
       }
       return row;
     }));
 
-    // Clear specific field error on change
-    if (errors[rowId]?.[field]) {
-      setErrors({
-        ...errors,
-        [rowId]: {
-          ...errors[rowId],
-          [field]: null
-        }
-      });
-    }
+    // Clear specific field error on change using functional state updates to avoid stale closure
+    setErrors(prevErrors => {
+      console.log('[BulkEntryForm] handleFieldChange prevErrors:', prevErrors);
+      if (!prevErrors[rowId]?.[field]) {
+        return prevErrors;
+      }
+      const rowErrors = { ...prevErrors[rowId] };
+      delete rowErrors[field];
+      
+      const newErrors = { ...prevErrors };
+      if (Object.keys(rowErrors).length === 0) {
+        delete newErrors[rowId];
+      } else {
+        newErrors[rowId] = rowErrors;
+      }
+      console.log('[BulkEntryForm] handleFieldChange updated errors:', newErrors);
+      return newErrors;
+    });
   };
 
   const handleManagerToggle = (rowId, managerId, checked) => {
@@ -110,13 +122,16 @@ export default function BulkEntryForm() {
     }));
 
     if (errors[rowId]?.manager_ids) {
-      setErrors({
-        ...errors,
-        [rowId]: {
-          ...errors[rowId],
-          manager_ids: null
-        }
-      });
+      const rowErrors = { ...errors[rowId] };
+      delete rowErrors.manager_ids;
+      
+      const newErrors = { ...errors };
+      if (Object.keys(rowErrors).length === 0) {
+        delete newErrors[rowId];
+      } else {
+        newErrors[rowId] = rowErrors;
+      }
+      setErrors(newErrors);
     }
   };
 
@@ -127,6 +142,8 @@ export default function BulkEntryForm() {
   const validateForm = () => {
     const newErrors = {};
     let hasErrors = false;
+
+    console.log('[BulkEntryForm] validateForm starting. current rows state:', rows);
 
     rows.forEach((row, idx) => {
       const rowErrors = {};
@@ -179,6 +196,7 @@ export default function BulkEntryForm() {
       }
     });
 
+    console.log('[BulkEntryForm] validateForm ending. errors found:', newErrors);
     setErrors(newErrors);
     return !hasErrors;
   };
@@ -186,10 +204,12 @@ export default function BulkEntryForm() {
   const handleSubmit = (e) => {
     e.preventDefault();
 
+    console.log('[BulkEntryForm] handleSubmit called. current rows state:', rows);
+
     if (!validateForm()) {
       toast.error("Please resolve validation errors in the highlighted rows");
       // Expand all rows that have errors
-      setRows(rows.map(r => errors[r.id] || Object.keys(errors).length > 0 ? { ...r, isExpanded: true } : r));
+      setRows(prevRows => prevRows.map(r => errors[r.id] || Object.keys(errors).length > 0 ? { ...r, isExpanded: true } : r));
       return;
     }
 
@@ -297,17 +317,36 @@ export default function BulkEntryForm() {
                     />
 
                     {/* Category */}
-                    <Select
-                      label="Category"
-                      value={row.category_id}
-                      onChange={(e) => handleFieldChange(row.id, 'category_id', e.target.value)}
-                      error={rowErrors.category_id}
-                      options={[
-                        { value: '', label: 'Select' },
-                        ...categories.map(c => ({ value: c.id, label: c.name }))
-                      ]}
-                      disabled={isSubmitting}
-                    />
+                    <div className="flex flex-col gap-1.5 w-full">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[13px] font-medium text-[#252523] dark:text-[#e6e4df] select-none leading-none">
+                          Category *
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCategorySuccessCallback(() => (newCat) => {
+                              console.log('[BulkEntryForm] executing categorySuccessCallback for row:', row.id, newCat);
+                              handleFieldChange(row.id, 'category_id', newCat.id);
+                            });
+                            setIsAddCategoryOpen(true);
+                          }}
+                          className="text-xs text-[#cc785c] hover:underline flex items-center gap-1 font-medium bg-transparent border-0 cursor-pointer"
+                        >
+                          <Plus size={10} /> Add new
+                        </button>
+                      </div>
+                      <Select
+                        value={row.category_id}
+                        onChange={(e) => handleFieldChange(row.id, 'category_id', e.target.value)}
+                        error={rowErrors.category_id}
+                        options={[
+                          { value: '', label: 'Select' },
+                          ...categories.map(c => ({ value: c.id, label: c.name }))
+                        ]}
+                        disabled={isSubmitting}
+                      />
+                    </div>
 
                     {/* Client */}
                     <Select
@@ -444,6 +483,21 @@ export default function BulkEntryForm() {
           </Button>
         </div>
       </div>
+      <CreateCategoryModal
+        isOpen={isAddCategoryOpen}
+        onClose={() => {
+          setIsAddCategoryOpen(false);
+          setCategorySuccessCallback(null);
+        }}
+        onSuccess={(newCat) => {
+          console.log('[BulkEntryForm] Category created:', newCat);
+          if (categorySuccessCallback) {
+            categorySuccessCallback(newCat);
+          } else {
+            console.warn('[BulkEntryForm] No categorySuccessCallback found!');
+          }
+        }}
+      />
     </form>
   );
 }
