@@ -12,27 +12,63 @@ const globalLimiter = rateLimit({
   }
 });
 
-// OTP request rate limiter: 3 requests per 10 minutes per email address
-const otpLimiter = rateLimit({
-  windowMs: 10 * 60 * 1000, // 10 minutes
-  max: 3, // Limit each email to 3 requests per 10 minutes
+// OTP request rate limiter: 5 requests per 1 minute per email/IP
+const otpRequestLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 5, // Limit each email/IP to 5 requests per minute
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => {
-    // Key on the lowercased email in the body to prevent cross-IP lockout of an email,
-    // or IP if email is not provided
     const email = req.body?.email;
     if (email && typeof email === 'string') {
-      return email.trim().toLowerCase();
+      return `otp_req:${email.trim().toLowerCase()}`;
     }
-    return req.ip;
+    return `otp_req:${req.ip}`;
   },
   handler: (req, res, next) => {
-    next(new AppError('TOO_MANY_REQUESTS', 'Rate limit exceeded: Max 3 OTP requests per 10 minutes per email.', 429));
+    next(new AppError('TOO_MANY_REQUESTS', 'Rate limit exceeded: Max 5 OTP requests per minute.', 429));
+  }
+});
+
+// OTP verification rate limiter: 5 attempts per 1 minute per email/IP
+const otpVerifyLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 5, // Limit to 5 attempts per minute
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const email = req.body?.email;
+    if (email && typeof email === 'string') {
+      return `otp_verify:${email.trim().toLowerCase()}`;
+    }
+    return `otp_verify:${req.ip}`;
+  },
+  handler: (req, res, next) => {
+    next(new AppError('TOO_MANY_REQUESTS', 'Rate limit exceeded: Max 5 OTP verification attempts per minute.', 429));
+  }
+});
+
+// Login rate limiter: 10 attempts per 15 minutes per username/IP
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10, // Limit to 10 attempts per 15 minutes
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const username = req.body?.username;
+    if (username && typeof username === 'string') {
+      return `login:${username.trim().toLowerCase()}`;
+    }
+    return `login:${req.ip}`;
+  },
+  handler: (req, res, next) => {
+    next(new AppError('TOO_MANY_REQUESTS', 'Rate limit exceeded: Max 10 login attempts per 15 minutes.', 429));
   }
 });
 
 module.exports = {
   globalLimiter,
-  otpLimiter
+  otpRequestLimiter,
+  otpVerifyLimiter,
+  loginLimiter
 };
