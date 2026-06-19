@@ -158,10 +158,19 @@ const usersController = {
         throw new AppError('VALIDATION_ERROR', 'User with this email already exists.', 400);
       }
 
+      // Resolve base frontend URL from environment variable, falling back to ALLOWED_ORIGINS or localhost
+      let frontendUrl = process.env.FRONTEND_URL;
+      if (!frontendUrl) {
+        const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000')
+          .split(',')
+          .map(o => o.trim());
+        frontendUrl = allowedOrigins[0] || 'http://localhost:3000';
+      }
+
       // Generate cryptographically random token
       const token = crypto.randomBytes(32).toString('hex');
       if (process.env.NODE_ENV === 'development') {
-        console.log(`\x1b[33m[DEV INVITE] Email: ${cleanEmail} -> Link: http://localhost:3000/invite/${token}\x1b[0m`);
+        console.log(`\x1b[33m[DEV INVITE] Email: ${cleanEmail} -> Link: ${frontendUrl}/invite/${token}\x1b[0m`);
       }
       const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours from now
 
@@ -175,12 +184,6 @@ const usersController = {
           used: false
         }
       });
-
-      // Resolve base frontend URL from ALLOWED_ORIGINS (e.g. http://localhost:3000)
-      const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000')
-        .split(',')
-        .map(o => o.trim());
-      const frontendUrl = allowedOrigins[0] || 'http://localhost:3000';
 
       // Send invite email via MS Graph API
       const subject = 'You have been invited to the Timesheet Portal';
