@@ -11,3 +11,4 @@ Thumbs.db
 backend/src/create_admin.js
 backend/dry_run_cleanup.js
 backend/execute_cleanup.js
+backend/seed_admin.js

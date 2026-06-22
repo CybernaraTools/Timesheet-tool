@@ -125,6 +125,18 @@ const timesheetController = {
               manager_id: true,
               manager: { select: { email: true } }
             }
+          },
+          edit_requests: {
+            select: {
+              id: true,
+              status: true,
+              reason: true,
+              created_at: true
+            },
+            orderBy: {
+              created_at: 'desc'
+            },
+            take: 1
           }
         },
         orderBy: { work_date: 'desc' }
@@ -269,6 +281,18 @@ const timesheetController = {
               manager_id: true,
               manager: { select: { email: true } }
             }
+          },
+          edit_requests: {
+            select: {
+              id: true,
+              status: true,
+              reason: true,
+              created_at: true
+            },
+            orderBy: {
+              created_at: 'desc'
+            },
+            take: 1
           }
         }
       });
@@ -319,6 +343,49 @@ const timesheetController = {
       });
       if (managers.length !== manager_ids.length) {
         throw new AppError('VALIDATION_ERROR', 'One or more specified manager IDs are invalid or do not belong to a manager.', 400);
+      }
+
+      const parsedWorkDate = new Date(work_date);
+      const parsedStartTime = parseTimeToDate(start_time);
+      const parsedEndTime = parseTimeToDate(end_time);
+
+      // 1. Duplicate check
+      const trimmedTitle = task_title.trim();
+      const trimmedDesc = description ? description.trim() : '';
+
+      const duplicate = await prisma.timesheetEntry.findFirst({
+        where: {
+          user_id: req.user.id,
+          work_date: parsedWorkDate,
+          task_title: {
+            equals: trimmedTitle,
+            mode: 'insensitive'
+          },
+          OR: trimmedDesc === '' ? [
+            { description: null },
+            { description: '' }
+          ] : [
+            { description: { equals: trimmedDesc, mode: 'insensitive' } }
+          ]
+        }
+      });
+
+      if (duplicate) {
+        throw new AppError('DUPLICATE_ENTRY', 'A timesheet entry with identical details already exists.', 400);
+      }
+
+      // 2. Overlap check
+      const overlap = await prisma.timesheetEntry.findFirst({
+        where: {
+          user_id: req.user.id,
+          work_date: parsedWorkDate,
+          start_time: { lt: parsedEndTime },
+          end_time: { gt: parsedStartTime }
+        }
+      });
+
+      if (overlap) {
+        throw new AppError('OVERLAPPING_ENTRY', 'This time slot overlaps with an existing task.', 400);
       }
 
       // Single entry create: locks automatically
@@ -559,8 +626,55 @@ const timesheetController = {
         }
       }
 
+      const targetWorkDate = work_date ? new Date(work_date) : entry.work_date;
+      const targetStartTime = start_time ? parseTimeToDate(start_time) : entry.start_time;
+      const targetEndTime = end_time ? parseTimeToDate(end_time) : entry.end_time;
+      const targetTitle = task_title !== undefined ? task_title : entry.task_title;
+      const targetDescription = description !== undefined ? description : entry.description;
+
+      const trimmedTitle = targetTitle.trim();
+      const trimmedDesc = targetDescription ? targetDescription.trim() : '';
+
+      // 1. Duplicate check
+      const duplicate = await prisma.timesheetEntry.findFirst({
+        where: {
+          user_id: entry.user_id,
+          work_date: targetWorkDate,
+          id: { not: id },
+          task_title: {
+            equals: trimmedTitle,
+            mode: 'insensitive'
+          },
+          OR: trimmedDesc === '' ? [
+            { description: null },
+            { description: '' }
+          ] : [
+            { description: { equals: trimmedDesc, mode: 'insensitive' } }
+          ]
+        }
+      });
+
+      if (duplicate) {
+        throw new AppError('DUPLICATE_ENTRY', 'A timesheet entry with identical details already exists.', 400);
+      }
+
+      // 2. Overlap check
+      const overlap = await prisma.timesheetEntry.findFirst({
+        where: {
+          user_id: entry.user_id,
+          work_date: targetWorkDate,
+          id: { not: id },
+          start_time: { lt: targetEndTime },
+          end_time: { gt: targetStartTime }
+        }
+      });
+
+      if (overlap) {
+        throw new AppError('OVERLAPPING_ENTRY', 'This time slot overlaps with an existing task.', 400);
+      }
+
       if (manager_ids) {
-        if (req.user.role === 'manager' && manager_ids.includes(req.user.id)) {
+        if (req.user.role === 'manager' && entry.user_id === req.user.id && manager_ids.includes(req.user.id)) {
           throw new AppError('VALIDATION_ERROR', 'You cannot select yourself as a manager.', 400);
         }
 

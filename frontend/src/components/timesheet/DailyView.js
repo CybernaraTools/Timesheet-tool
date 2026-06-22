@@ -1,8 +1,9 @@
 import React, { useState, useMemo } from 'react';
 import Link from 'next/link';
-import { LayoutGrid, List, Plus, ChevronLeft, ChevronRight, Layers } from 'lucide-react';
+import { LayoutGrid, List, Plus, ChevronLeft, ChevronRight, Layers, AlertCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useEntries, useDeleteEntry } from '@/lib/hooks/useTimesheet';
+import { useApproveEditRequest, useRejectEditRequest } from '@/lib/hooks/useEditRequests';
 import { useTeamMembers } from '@/lib/hooks/useUsers';
 import { formatDuration } from '@/lib/utils/formatDuration';
 import EntryCard from './EntryCard';
@@ -38,6 +39,15 @@ export default function DailyView() {
   const [editingEntry, setEditingEntry] = useState(null);
   const [isRequestEditOpen, setIsRequestEditOpen] = useState(false);
   const [requestEditId, setRequestEditId] = useState(null);
+
+  // Rejection modal state for reviewing team requests
+  const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
+  const [rejectRequestId, setRejectRequestId] = useState(null);
+  const [rejectionReason, setRejectionReason] = useState('');
+  const [rejectionError, setRejectionError] = useState('');
+
+  const approveMutation = useApproveEditRequest();
+  const rejectMutation = useRejectEditRequest();
 
   // --- Fetch Team Members for Filter ---
   const { data: teamMembers = [] } = useTeamMembers(undefined, {
@@ -164,6 +174,46 @@ export default function DailyView() {
         }
       });
     }
+  };
+
+  const handleApproveEditRequest = (requestId) => {
+    if (window.confirm("Are you sure you want to approve this edit request? This will unlock the entry for editing.")) {
+      approveMutation.mutate(requestId, {
+        onSuccess: () => {
+          toast.success("Edit request approved and entry unlocked");
+          refetch();
+        },
+        onError: (err) => {
+          toast.error(err.message || "Failed to approve request");
+        }
+      });
+    }
+  };
+
+  const handleRejectEditRequestClick = (requestId) => {
+    setRejectRequestId(requestId);
+    setRejectionReason('');
+    setRejectionError('');
+    setIsRejectModalOpen(true);
+  };
+
+  const handleConfirmReject = (e) => {
+    e.preventDefault();
+    if (!rejectionReason || rejectionReason.trim().length < 10) {
+      setRejectionError("Rejection reason must be at least 10 characters long");
+      return;
+    }
+
+    rejectMutation.mutate({ id: rejectRequestId, reason: rejectionReason.trim() }, {
+      onSuccess: () => {
+        toast.success("Edit request rejected");
+        setIsRejectModalOpen(false);
+        refetch();
+      },
+      onError: (err) => {
+        toast.error(err.message || "Failed to reject request");
+      }
+    });
   };
 
   return (
@@ -323,6 +373,10 @@ export default function DailyView() {
             onEdit={handleEditClick}
             onDelete={handleDeleteClick}
             onRequestEdit={handleRequestEditClick}
+            onApproveRequest={handleApproveEditRequest}
+            onRejectRequest={handleRejectEditRequestClick}
+            approvingRequestId={approveMutation.isPending ? approveMutation.variables : null}
+            rejectingRequestId={rejectMutation.isPending ? rejectMutation.variables?.id : null}
           />
         </div>
       ) : (
@@ -334,6 +388,10 @@ export default function DailyView() {
               onEdit={handleEditClick}
               onDelete={handleDeleteClick}
               onRequestEdit={handleRequestEditClick}
+              onApproveRequest={handleApproveEditRequest}
+              onRejectRequest={handleRejectEditRequestClick}
+              approvingRequestId={approveMutation.isPending ? approveMutation.variables : null}
+              rejectingRequestId={rejectMutation.isPending ? rejectMutation.variables?.id : null}
             />
           ))}
         </div>
@@ -377,6 +435,54 @@ export default function DailyView() {
         isOpen={isAddCategoryOpen}
         onClose={() => setIsAddCategoryOpen(false)}
       />
+
+      {/* Reject Modal for review actions */}
+      <Modal
+        isOpen={isRejectModalOpen}
+        onClose={() => setIsRejectModalOpen(false)}
+        title="Reject Edit Request"
+      >
+        <form onSubmit={handleConfirmReject} className="space-y-4">
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-medium text-body-strong">
+              Rejection reason *
+            </label>
+            <textarea
+              placeholder="Explain why this unlock request is rejected (minimum 10 characters)"
+              rows={4}
+              value={rejectionReason}
+              onChange={(e) => {
+                setRejectionReason(e.target.value);
+                if (e.target.value.trim().length >= 10) setRejectionError('');
+              }}
+              className="w-full bg-canvas text-primary-text rounded-md p-3 border border-hairline focus:outline-none focus:border-bmw-blue focus:ring-1 focus:ring-bmw-blue/30 text-sm font-light"
+            />
+            {rejectionError && (
+              <p className="text-xs text-m-red mt-1 flex items-center gap-1">
+                <AlertCircle size={12} /> {rejectionError}
+              </p>
+            )}
+          </div>
+
+          <div className="flex justify-end gap-3 pt-4 border-t border-hairline">
+            <Button
+              variant="secondary"
+              onClick={() => setIsRejectModalOpen(false)}
+              disabled={rejectMutation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              isLoading={rejectMutation.isPending}
+              className="hover:bg-m-red hover:text-white"
+            >
+              Confirm Reject
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }

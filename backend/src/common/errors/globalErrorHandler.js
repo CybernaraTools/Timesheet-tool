@@ -32,6 +32,18 @@ function globalErrorHandler(err, req, res, next) {
     statusCode = 404;
     responseError.code = 'NOT_FOUND';
     responseError.message = 'The requested resource could not be found.';
+  } else if (err.code === 'P2010') {
+    // Prisma Raw query failed (e.g. database user exceptions raised by stored function)
+    statusCode = 400;
+    responseError.code = 'DATABASE_EXCEPTION';
+    let rawMsg = err.meta?.message || err.message || '';
+    if (rawMsg.includes('ERROR:')) {
+      rawMsg = rawMsg.split('ERROR:')[1].trim();
+    }
+    if (rawMsg.includes('\n')) {
+      rawMsg = rawMsg.split('\n')[0].trim();
+    }
+    responseError.message = rawMsg || 'Database query execution failed.';
   }
 
   // If in non-production, attach the error stack for easier development

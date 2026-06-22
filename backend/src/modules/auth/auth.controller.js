@@ -198,25 +198,79 @@ const authController = {
       }
 
       // Create Supabase Auth user
-      const { data: authData, error: authError } = await supabase.auth.admin.createUser({
-        email,
-        password,
-        email_confirm: true,
-        user_metadata: { full_name: cleanUsername }
-      });
+      let authUser;
+      try {
+        const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+          email,
+          password,
+          email_confirm: true,
+          user_metadata: { full_name: cleanUsername }
+        });
 
-      if (authError) {
-        throw new AppError('AUTH_ERROR', authError.message, 400);
+        if (authError) {
+          throw authError;
+        }
+        authUser = authData.user;
+      } catch (error) {
+        const isConflict =
+          error.code === 'email_exists' ||
+          error.message.toLowerCase().includes("already exists") ||
+          error.message.toLowerCase().includes("registered") ||
+          error.message.toLowerCase().includes("conflict");
+
+        if (isConflict) {
+          // Check if they are already in the public.users database
+          const publicUser = await prisma.user.findUnique({
+            where: { email }
+          });
+
+          if (publicUser) {
+            throw new AppError('AUTH_ERROR', 'A user with this email address has already been registered.', 400);
+          }
+
+          // If not in public.users, they are orphaned! Recover them.
+          console.log(`[Signup Recovery]: Syncing orphaned Auth user: ${email}`);
+          const { data: usersList, error: listError } = await supabase.auth.admin.listUsers();
+          if (listError) throw new AppError('AUTH_ERROR', `Auth lookup failed: ${listError.message}`, 400);
+
+          const existingUser = usersList.users.find(u => u.email === email);
+          if (!existingUser) {
+            throw new AppError('AUTH_ERROR', 'User conflict detected, but user details not found.', 400);
+          }
+
+          // Reset user password and metadata in Supabase Auth
+          const { data: updateData, error: updateError } = await supabase.auth.admin.updateUserById(existingUser.id, {
+            password,
+            user_metadata: { full_name: cleanUsername }
+          });
+
+          if (updateError) {
+            throw new AppError('AUTH_ERROR', `Auth credential reset failed: ${updateError.message}`, 400);
+          }
+
+          authUser = existingUser;
+        } else {
+          throw new AppError('AUTH_ERROR', error.message, 400);
+        }
       }
 
-      const authUser = authData.user;
       const passwordHash = bcrypt.hashSync(password, 10);
 
-      // Update public.users row created by trigger
+      // Upsert public.users row created by trigger (handles both trigger-created or missing records)
       const updatedUser = await withUserContext(authUser.id, async (tx) => {
-        return await tx.user.update({
+        return await tx.user.upsert({
           where: { id: authUser.id },
-          data: {
+          update: {
+            username: cleanUsername,
+            password_hash: passwordHash,
+            role: 'employee',
+            status: 'active',
+            created_via: 'signup'
+          },
+          create: {
+            id: authUser.id,
+            email: email,
+            full_name: cleanUsername,
             username: cleanUsername,
             password_hash: passwordHash,
             role: 'employee',
@@ -317,28 +371,82 @@ const authController = {
       }
 
       // Create Supabase Auth user
-      const { data: authData, error: authError } = await supabase.auth.admin.createUser({
-        email,
-        password,
-        email_confirm: true,
-        user_metadata: { full_name: cleanUsername }
-      });
+      let authUser;
+      try {
+        const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+          email,
+          password,
+          email_confirm: true,
+          user_metadata: { full_name: cleanUsername }
+        });
 
-      if (authError) {
-        throw new AppError('AUTH_ERROR', authError.message, 400);
+        if (authError) {
+          throw authError;
+        }
+        authUser = authData.user;
+      } catch (error) {
+        const isConflict =
+          error.code === 'email_exists' ||
+          error.message.toLowerCase().includes("already exists") ||
+          error.message.toLowerCase().includes("registered") ||
+          error.message.toLowerCase().includes("conflict");
+
+        if (isConflict) {
+          // Check if they are already in the public.users database
+          const publicUser = await prisma.user.findUnique({
+            where: { email }
+          });
+
+          if (publicUser) {
+            throw new AppError('AUTH_ERROR', 'A user with this email address has already been registered.', 400);
+          }
+
+          // If not in public.users, they are orphaned! Recover them.
+          console.log(`[Invite Recovery]: Syncing orphaned Auth user: ${email}`);
+          const { data: usersList, error: listError } = await supabase.auth.admin.listUsers();
+          if (listError) throw new AppError('AUTH_ERROR', `Auth lookup failed: ${listError.message}`, 400);
+
+          const existingUser = usersList.users.find(u => u.email === email);
+          if (!existingUser) {
+            throw new AppError('AUTH_ERROR', 'User conflict detected, but user details not found.', 400);
+          }
+
+          // Reset user password and metadata in Supabase Auth
+          const { data: updateData, error: updateError } = await supabase.auth.admin.updateUserById(existingUser.id, {
+            password,
+            user_metadata: { full_name: cleanUsername }
+          });
+
+          if (updateError) {
+            throw new AppError('AUTH_ERROR', `Auth credential reset failed: ${updateError.message}`, 400);
+          }
+
+          authUser = existingUser;
+        } else {
+          throw new AppError('AUTH_ERROR', error.message, 400);
+        }
       }
 
-      const authUser = authData.user;
       const passwordHash = bcrypt.hashSync(password, 10);
 
-      // Update public.users record
+      // Upsert public.users record (handles both trigger-created or missing records)
       const updatedUser = await withUserContext(authUser.id, async (tx) => {
-        return await tx.user.update({
+        return await tx.user.upsert({
           where: { id: authUser.id },
-          data: {
+          update: {
             username: cleanUsername,
             password_hash: passwordHash,
             role: 'manager', // Invited users are always Managers
+            status: 'active',
+            created_via: 'invite'
+          },
+          create: {
+            id: authUser.id,
+            email: email,
+            full_name: cleanUsername,
+            username: cleanUsername,
+            password_hash: passwordHash,
+            role: 'manager',
             status: 'active',
             created_via: 'invite'
           }

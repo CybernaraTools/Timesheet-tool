@@ -3,7 +3,7 @@ import LockBadge from './LockBadge';
 import Badge from '../ui/Badge';
 import Button from '../ui/Button';
 import { formatDuration } from '@/lib/utils/formatDuration';
-import { Clock, Briefcase, Tag, FileText, User, Pencil, Trash2, Send } from 'lucide-react';
+import { Clock, Briefcase, Tag, FileText, User, Pencil, Trash2, Send, CheckCircle2, XCircle } from 'lucide-react';
 import { useAuthStore } from '@/lib/stores/authStore';
 
 export function OutputStatusBadge({ status }) {
@@ -17,7 +17,7 @@ export function OutputStatusBadge({ status }) {
   return <Badge variant={config.variant}>{config.label}</Badge>;
 }
 
-export default function EntryCard({ entry, onEdit, onDelete, onRequestEdit }) {
+export default function EntryCard({ entry, onEdit, onDelete, onRequestEdit, onApproveRequest, onRejectRequest, approvingRequestId, rejectingRequestId }) {
   const { user } = useAuthStore();
   const isAdmin = user?.role === 'admin';
   const isManager = user?.role === 'manager';
@@ -154,13 +154,40 @@ export default function EntryCard({ entry, onEdit, onDelete, onRequestEdit }) {
         {/* Employee own entry */}
         {!isAdmin && isOwnEntry && (
           entry.is_locked ? (
-            <Button
-              variant="outline"
-              className="w-full h-9 text-xs"
-              onClick={() => onRequestEdit(entry.id)}
-            >
-              <Send size={13} /> Request edit
-            </Button>
+            (() => {
+              const latestRequest = entry.edit_requests?.[0];
+              if (latestRequest?.status === 'pending') {
+                return (
+                  <Button
+                    variant="secondary"
+                    disabled={true}
+                    className="w-full h-9 text-xs border-[#d4a017]/30 bg-[#d4a017]/5 text-[#d4a017] dark:bg-[#d4a017]/10 disabled:opacity-100"
+                  >
+                    <Clock size={13} className="animate-pulse" /> Unlock pending
+                  </Button>
+                );
+              } else if (latestRequest?.status === 'rejected') {
+                return (
+                  <Button
+                    variant="outline"
+                    className="w-full h-9 text-xs border-[#c64545]/30 hover:border-[#c64545]/50 bg-[#c64545]/5 hover:bg-[#c64545]/10 text-[#c64545]"
+                    onClick={() => onRequestEdit(entry.id)}
+                    title={`Rejected: ${latestRequest.reason || 'No reason provided'}`}
+                  >
+                    <Send size={13} /> Re-request edit
+                  </Button>
+                );
+              }
+              return (
+                <Button
+                  variant="outline"
+                  className="w-full h-9 text-xs"
+                  onClick={() => onRequestEdit(entry.id)}
+                >
+                  <Send size={13} /> Request edit
+                </Button>
+              );
+            })()
           ) : (
             <div className="flex items-center gap-2">
               <Button
@@ -183,13 +210,58 @@ export default function EntryCard({ entry, onEdit, onDelete, onRequestEdit }) {
 
         {/* Manager reviewing team entries: Edit only, no Delete */}
         {isManager && !isOwnEntry && (
-          <Button
-            variant="secondary"
-            className="w-full h-9 text-xs"
-            onClick={() => onEdit(entry)}
-          >
-            <Pencil size={13} /> Edit
-          </Button>
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <Button
+                variant="secondary"
+                className="flex-1 h-9 text-xs"
+                onClick={() => onEdit(entry)}
+                disabled={!!approvingRequestId || !!rejectingRequestId}
+              >
+                <Pencil size={13} /> Edit
+              </Button>
+              {entry.edit_requests?.[0]?.status === 'pending' && (
+                <>
+                  <Button
+                    variant="secondary"
+                    className="flex-1 h-9 text-xs hover:bg-green-500/10 hover:text-green-500 hover:border-green-500/30"
+                    onClick={() => onApproveRequest(entry.edit_requests[0].id)}
+                    isLoading={approvingRequestId === entry.edit_requests[0].id}
+                    disabled={!!approvingRequestId || !!rejectingRequestId}
+                  >
+                    <CheckCircle2 size={13} /> Approve
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="flex-1 h-9 text-xs hover:bg-m-red/10 hover:text-m-red hover:border-m-red/30"
+                    onClick={() => onRejectRequest(entry.edit_requests[0].id)}
+                    isLoading={rejectingRequestId === entry.edit_requests[0].id}
+                    disabled={!!approvingRequestId || !!rejectingRequestId}
+                  >
+                    <XCircle size={13} /> Reject
+                  </Button>
+                </>
+              )}
+            </div>
+            {(() => {
+              const latestRequest = entry.edit_requests?.[0];
+              if (latestRequest?.status === 'pending') {
+                return (
+                  <div className="text-[11px] bg-amber-500/10 text-amber-500 border border-amber-500/20 px-2.5 py-1.5 rounded-md text-center font-medium">
+                    Pending Edit Request: "{latestRequest.reason}"
+                  </div>
+                );
+              }
+              if (latestRequest?.status === 'rejected') {
+                return (
+                  <div className="text-[11px] bg-m-red/10 text-[#c64545] border border-m-red/20 px-2.5 py-1.5 rounded-md text-center font-medium">
+                    Rejected Edit Request: "{latestRequest.reason}"
+                  </div>
+                );
+              }
+              return null;
+            })()}
+          </div>
         )}
       </div>
     </div>

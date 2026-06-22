@@ -12,9 +12,9 @@ import Table from '../ui/Table';
 import Button from '../ui/Button';
 import Pagination from '../ui/Pagination';
 import { useAuthStore } from '@/lib/stores/authStore';
-import { Pencil, Trash2, Send } from 'lucide-react';
+import { Pencil, Trash2, Send, Clock, CheckCircle2, XCircle } from 'lucide-react';
 
-export default function EntryTable({ entries, onEdit, onDelete, onRequestEdit }) {
+export default function EntryTable({ entries, onEdit, onDelete, onRequestEdit, onApproveRequest, onRejectRequest, approvingRequestId, rejectingRequestId }) {
   const { user } = useAuthStore();
   const isAdmin = user?.role === 'admin';
   const isManager = user?.role === 'manager';
@@ -167,6 +167,33 @@ export default function EntryTable({ entries, onEdit, onDelete, onRequestEdit })
         // Own entry rules: request edit if locked, edit/delete if unlocked
         if (isOwnEntry) {
           if (entry.is_locked) {
+            const latestRequest = entry.edit_requests?.[0];
+            if (latestRequest?.status === 'pending') {
+              return (
+                <div className="flex items-center gap-1.5">
+                  <Button
+                    variant="secondary"
+                    disabled={true}
+                    className="text-xs h-8 px-3 border-[#d4a017]/30 bg-[#d4a017]/5 text-[#d4a017] dark:bg-[#d4a017]/10 disabled:opacity-100"
+                  >
+                    <Clock size={12} className="animate-pulse" /> Unlock pending
+                  </Button>
+                </div>
+              );
+            } else if (latestRequest?.status === 'rejected') {
+              return (
+                <div className="flex items-center gap-1.5">
+                  <Button
+                    variant="outline"
+                    className="text-xs h-8 px-3 border-[#c64545]/30 hover:border-[#c64545]/50 bg-[#c64545]/5 hover:bg-[#c64545]/10 text-[#c64545]"
+                    onClick={() => onRequestEdit(entry.id)}
+                    title={`Rejected: ${latestRequest.reason || 'No reason provided'}`}
+                  >
+                    <Send size={12} /> Re-request edit
+                  </Button>
+                </div>
+              );
+            }
             return (
               <div className="flex items-center gap-1.5">
                 <Button
@@ -202,15 +229,53 @@ export default function EntryTable({ entries, onEdit, onDelete, onRequestEdit })
  
         // Manager reviewing team entries: Edit only, no Delete
         if (isManager) {
+          const latestRequest = entry.edit_requests?.[0];
+          const hasPending = latestRequest?.status === 'pending';
           return (
             <div className="flex items-center gap-1.5">
               <Button
                 variant="secondary"
                 className="text-xs h-8 px-3"
                 onClick={() => onEdit(entry)}
+                disabled={!!approvingRequestId || !!rejectingRequestId}
               >
                 <Pencil size={12} /> Edit
               </Button>
+              {hasPending ? (
+                <>
+                  <Button
+                    variant="secondary"
+                    className="text-xs h-8 px-2 hover:bg-green-500/10 hover:text-green-500 hover:border-green-500/30"
+                    onClick={() => onApproveRequest(latestRequest.id)}
+                    title={`Pending Unlock Reason: ${latestRequest.reason}`}
+                    isLoading={approvingRequestId === latestRequest.id}
+                    disabled={!!approvingRequestId || !!rejectingRequestId}
+                  >
+                    <CheckCircle2 size={12} /> Approve
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="text-xs h-8 px-2 hover:bg-m-red/10 hover:text-m-red hover:border-m-red/30"
+                    onClick={() => onRejectRequest(latestRequest.id)}
+                    title={`Pending Unlock Reason: ${latestRequest.reason}`}
+                    isLoading={rejectingRequestId === latestRequest.id}
+                    disabled={!!approvingRequestId || !!rejectingRequestId}
+                  >
+                    <XCircle size={12} /> Reject
+                  </Button>
+                </>
+              ) : (
+                <>
+                  {latestRequest?.status === 'rejected' && (
+                    <span 
+                      className="text-[11px] bg-m-red/10 text-[#c64545] border border-m-red/20 px-2 py-0.5 rounded cursor-help font-medium whitespace-nowrap"
+                      title={`Rejected Reason: ${latestRequest.reason}`}
+                    >
+                      Request rejected
+                    </span>
+                  )}
+                </>
+              )}
             </div>
           );
         }

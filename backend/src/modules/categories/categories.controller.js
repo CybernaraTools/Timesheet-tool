@@ -35,10 +35,23 @@ const categoriesController = {
         throw new AppError('VALIDATION_ERROR', 'Category name is required.', 400);
       }
 
+      const trimmedName = name.trim();
+      const existing = await prisma.category.findFirst({
+        where: {
+          name: {
+            equals: trimmedName,
+            mode: 'insensitive'
+          }
+        }
+      });
+      if (existing) {
+        throw new AppError('DUPLICATE_CATEGORY', 'Category already exists. Please choose a different name.', 400);
+      }
+
       const category = await withUserContext(req.user.id, async (tx) => {
         return await tx.category.create({
           data: {
-            name: name.trim(),
+            name: trimmedName,
             type: 'custom',
             created_by: req.user.id
           }
@@ -67,7 +80,22 @@ const categoriesController = {
         if (typeof name !== 'string' || name.trim().length === 0) {
           throw new AppError('VALIDATION_ERROR', 'Category name cannot be empty.', 400);
         }
-        updateData.name = name.trim();
+        const trimmedName = name.trim();
+        const existing = await prisma.category.findFirst({
+          where: {
+            name: {
+              equals: trimmedName,
+              mode: 'insensitive'
+            },
+            id: {
+              not: id
+            }
+          }
+        });
+        if (existing) {
+          throw new AppError('DUPLICATE_CATEGORY', 'Category already exists. Please choose a different name.', 400);
+        }
+        updateData.name = trimmedName;
       }
       if (is_active !== undefined) {
         if (typeof is_active !== 'boolean') {

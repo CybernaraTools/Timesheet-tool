@@ -34,10 +34,23 @@ const clientsController = {
         throw new AppError('VALIDATION_ERROR', 'Client name is required.', 400);
       }
 
+      const trimmedName = name.trim();
+      const existing = await prisma.client.findFirst({
+        where: {
+          name: {
+            equals: trimmedName,
+            mode: 'insensitive'
+          }
+        }
+      });
+      if (existing) {
+        throw new AppError('DUPLICATE_CLIENT', 'Client already exists. Please choose a different name.', 400);
+      }
+
       const client = await withUserContext(req.user.id, async (tx) => {
         return await tx.client.create({
           data: {
-            name: name.trim(),
+            name: trimmedName,
             created_by: req.user.id
           }
         });
@@ -65,7 +78,22 @@ const clientsController = {
         if (typeof name !== 'string' || name.trim().length === 0) {
           throw new AppError('VALIDATION_ERROR', 'Client name cannot be empty.', 400);
         }
-        updateData.name = name.trim();
+        const trimmedName = name.trim();
+        const existing = await prisma.client.findFirst({
+          where: {
+            name: {
+              equals: trimmedName,
+              mode: 'insensitive'
+            },
+            id: {
+              not: id
+            }
+          }
+        });
+        if (existing) {
+          throw new AppError('DUPLICATE_CLIENT', 'Client already exists. Please choose a different name.', 400);
+        }
+        updateData.name = trimmedName;
       }
       if (is_active !== undefined) {
         if (typeof is_active !== 'boolean') {

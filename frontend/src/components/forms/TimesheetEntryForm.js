@@ -15,6 +15,7 @@ import Select from '../ui/Select';
 import MultiSelect from '../ui/MultiSelect';
 import Spinner from '../ui/Spinner';
 import CreateCategoryModal from '../modals/CreateCategoryModal';
+import { Plus } from 'lucide-react';
 
 // Zod Schema
 const entrySchema = z.object({
@@ -50,7 +51,12 @@ export default function TimesheetEntryForm({ entry, selectedDate, onSuccess, onC
   const { data: clients = [] } = useClients();
   const { data: categories = [] } = useCategories();
   const { data: managers = [], isLoading: loadingManagers } = useManagers();
-  const filteredManagers = managers.filter(mgr => mgr.id !== user?.id);
+  const filteredManagers = managers.filter(mgr => {
+    if (!!entry && entry?.user_id !== user?.id) {
+      return true;
+    }
+    return mgr.id !== user?.id;
+  });
 
   const createEntry = useCreateEntry();
   const updateEntry = useUpdateEntry();
@@ -87,6 +93,9 @@ export default function TimesheetEntryForm({ entry, selectedDate, onSuccess, onC
   });
 
   const selectedManagerIds = watch('manager_ids') || [];
+  const selectedCategoryId = watch('category_id') || '';
+  const selectedClientId = watch('client_id') || '';
+  const selectedOutputStatus = watch('output_status') || '';
 
   // Auto-select manager(s) of the employee by default once loaded (only for new entries)
   useEffect(() => {
@@ -151,6 +160,7 @@ export default function TimesheetEntryForm({ entry, selectedDate, onSuccess, onC
             { value: 'blocked', label: 'Blocked' },
             { value: 'deferred', label: 'Deferred' }
           ]}
+          value={selectedOutputStatus}
           {...register('output_status')}
           disabled={isSubmitting}
         />
@@ -177,6 +187,7 @@ export default function TimesheetEntryForm({ entry, selectedDate, onSuccess, onC
               { value: '', label: 'Select a category' },
               ...categories.map(c => ({ value: c.id, label: c.name }))
             ]}
+            value={selectedCategoryId}
             {...register('category_id')}
             disabled={isSubmitting}
           />
@@ -190,6 +201,7 @@ export default function TimesheetEntryForm({ entry, selectedDate, onSuccess, onC
             { value: '', label: 'None' },
             ...clients.filter(c => c.is_active || c.id === entry?.client_id).map(c => ({ value: c.id, label: c.name }))
           ]}
+          value={selectedClientId}
           {...register('client_id')}
           disabled={isSubmitting}
         />
