@@ -460,8 +460,15 @@ const timesheetController = {
 
       // Manual DTO validation on the array items (including future date validation)
       const errors = [];
-      const today = new Date();
-      today.setHours(23, 59, 59, 999);
+      // Get the current date in IST (Indian Standard Time) timezone
+      const dateInIstStr = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'Asia/Kolkata',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+      }).format(new Date());
+      const [mm, dd, yyyy] = dateInIstStr.split('/');
+      const today = new Date(`${yyyy}-${mm}-${dd}T23:59:59.999Z`);
 
       tasks.forEach((task, index) => {
         const taskErrors = {};
