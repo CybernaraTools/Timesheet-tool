@@ -3,6 +3,13 @@ const paginate = require('../../common/helpers/pagination');
 const AppError = require('../../common/errors/AppError');
 const withUserContext = require('../../common/helpers/currentUser');
 const notificationService = require('../notifications/notification.service');
+const dayjs = require('dayjs');
+const utc = require('dayjs/plugin/utc');
+const timezone = require('dayjs/plugin/timezone');
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
+
 
 // Utility to validate UUID string via Regex
 const isUUID = (str) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
@@ -460,22 +467,15 @@ const timesheetController = {
 
       // Manual DTO validation on the array items (including future date validation)
       const errors = [];
-      // Get the current date in IST (Indian Standard Time) timezone
-      const dateInIstStr = new Intl.DateTimeFormat('en-US', {
-        timeZone: 'Asia/Kolkata',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit'
-      }).format(new Date());
-      const [mm, dd, yyyy] = dateInIstStr.split('/');
-      const today = new Date(`${yyyy}-${mm}-${dd}T23:59:59.999Z`);
+      const todayIST = dayjs().tz('Asia/Kolkata').format('YYYY-MM-DD');
 
       tasks.forEach((task, index) => {
         const taskErrors = {};
         if (!task.work_date || isNaN(Date.parse(task.work_date))) {
           taskErrors.work_date = 'Work date must be a valid date.';
         } else {
-          if (new Date(task.work_date) > today) {
+          const taskDateFormatted = dayjs(task.work_date).format('YYYY-MM-DD');
+          if (taskDateFormatted > todayIST) {
             taskErrors.work_date = 'work_date cannot be a future date.';
           }
         }
