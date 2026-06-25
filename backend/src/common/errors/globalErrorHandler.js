@@ -43,6 +43,14 @@ function globalErrorHandler(err, req, res, next) {
     if (rawMsg.includes('\n')) {
       rawMsg = rawMsg.split('\n')[0].trim();
     }
+    
+    // Map specific database exception messages to correct client error codes
+    if (rawMsg.includes('overlaps with an existing task')) {
+      responseError.code = 'OVERLAPPING_ENTRY';
+    } else if (rawMsg.includes('identical details already exists')) {
+      responseError.code = 'DUPLICATE_ENTRY';
+    }
+    
     responseError.message = rawMsg || 'Database query execution failed.';
   }
 
