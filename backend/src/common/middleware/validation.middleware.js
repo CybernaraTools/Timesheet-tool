@@ -1,6 +1,12 @@
 const { isEmail, isEnum, isUUID, minLength, isISO8601 } = require('class-validator');
 const AppError = require('../errors/AppError');
 const { UserRole, OtpPurpose, OutputStatus, UserStatus } = require('../enums');
+const dayjs = require('dayjs');
+const utc = require('dayjs/plugin/utc');
+const timezone = require('dayjs/plugin/timezone');
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
 
 function validateEmail(email) {
   if (!email || typeof email !== 'string') return false;
@@ -129,11 +135,9 @@ const validators = {
     if (!work_date || !isISO8601(work_date)) {
       errors.work_date = 'Work date must be a valid ISO8601 date string (YYYY-MM-DD).';
     } else {
-      const today = new Date();
-      // Reset hours, minutes, seconds, ms for simple date comparison
-      today.setHours(23, 59, 59, 999);
-      const parsedWorkDate = new Date(work_date);
-      if (parsedWorkDate > today) {
+      const todayIST = dayjs().tz('Asia/Kolkata').format('YYYY-MM-DD');
+      const taskDateFormatted = dayjs(work_date).format('YYYY-MM-DD');
+      if (taskDateFormatted > todayIST) {
         errors.work_date = 'work_date cannot be a future date.';
       }
     }
@@ -196,10 +200,9 @@ const validators = {
       if (!isISO8601(work_date)) {
         errors.work_date = 'Work date must be a valid ISO8601 date string (YYYY-MM-DD).';
       } else {
-        const today = new Date();
-        today.setHours(23, 59, 59, 999);
-        const parsedWorkDate = new Date(work_date);
-        if (parsedWorkDate > today) {
+        const todayIST = dayjs().tz('Asia/Kolkata').format('YYYY-MM-DD');
+        const taskDateFormatted = dayjs(work_date).format('YYYY-MM-DD');
+        if (taskDateFormatted > todayIST) {
           errors.work_date = 'work_date cannot be a future date.';
         }
       }
