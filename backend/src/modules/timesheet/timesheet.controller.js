@@ -613,23 +613,33 @@ const timesheetController = {
         throw new AppError('NOT_FOUND', 'Timesheet entry not found.', 404);
       }
 
-      // Check locking rules: Employee cannot edit locked entries
-      if (req.user.role === 'employee') {
-        if (entry.user_id !== req.user.id) {
-          throw new AppError('FORBIDDEN', 'You do not have permission to edit this entry.', 403);
-        }
-        if (entry.is_locked) {
-          throw new AppError('ENTRY_LOCKED', 'This timesheet entry is locked and cannot be edited.', 403);
-        }
-      } else if (req.user.role === 'manager') {
-        const isAssigned = await prisma.timesheetEntryManager.findFirst({
-          where: { entry_id: id, manager_id: req.user.id }
-        });
-        const directReport = await prisma.user.findFirst({
-          where: { id: entry.user_id, managers: { some: { manager_id: req.user.id } } }
-        });
-        if (entry.user_id !== req.user.id && !directReport && !isAssigned) {
-          throw new AppError('FORBIDDEN', 'You do not have permission to edit this entry.', 403);
+      // Check locking rules: Employee or Manager cannot edit their own locked entries after the 5-min cooling period
+      const isOwner = entry.user_id === req.user.id;
+
+      if (req.user.role !== 'admin') {
+        if (isOwner) {
+          if (entry.is_locked) {
+            const timeElapsedMs = new Date() - new Date(entry.created_at);
+            const coolingPeriodMs = 5 * 60 * 1000; // 5 minutes
+            if (timeElapsedMs > coolingPeriodMs) {
+              throw new AppError('ENTRY_LOCKED', 'This timesheet entry is locked and cannot be edited directly.', 403);
+            }
+          }
+        } else {
+          // Editing someone else's entry
+          if (req.user.role === 'employee') {
+            throw new AppError('FORBIDDEN', 'You do not have permission to edit this entry.', 403);
+          } else if (req.user.role === 'manager') {
+            const isAssigned = await prisma.timesheetEntryManager.findFirst({
+              where: { entry_id: id, manager_id: req.user.id }
+            });
+            const directReport = await prisma.user.findFirst({
+              where: { id: entry.user_id, managers: { some: { manager_id: req.user.id } } }
+            });
+            if (!directReport && !isAssigned) {
+              throw new AppError('FORBIDDEN', 'You do not have permission to edit this entry.', 403);
+            }
+          }
         }
       }
 
@@ -730,10 +740,19 @@ const timesheetController = {
           });
         }
 
+        // Reset lock and cooling period on owner edit
+        const finalUpdateData = {
+          ...updateData
+        };
+        if (isOwner) {
+          finalUpdateData.is_locked = true;
+          finalUpdateData.created_at = new Date();
+        }
+
         return await tx.timesheetEntry.update({
           where: { id },
           data: {
-            ...updateData,
+            ...finalUpdateData,
             ...(manager_ids && {
               entry_managers: {
                 create: manager_ids.map(mid => ({ manager_id: mid }))
