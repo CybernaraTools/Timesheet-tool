@@ -60,7 +60,14 @@ export default function Sidebar() {
         {!isCollapsed && (
           <Link href="/dashboard" className="flex flex-col">
             <span className="text-xl font-serif-display text-primary-text">Cybernara</span>
-            <span className="text-[10px] uppercase tracking-[1.5px] text-muted-text font-semibold">Timesheet Portal</span>
+            <div className="flex items-baseline gap-1.5 mt-0.5">
+              <span className="text-[9px] uppercase tracking-[2px] text-muted-text font-semibold">
+                Timesheet Portal
+              </span>
+              <span className="text-[9px] font-mono text-muted-text/40 tracking-normal normal-case select-none">
+                v1.0
+              </span>
+            </div>
           </Link>
         )}
 

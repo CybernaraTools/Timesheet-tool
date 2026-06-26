@@ -36,10 +36,18 @@ export default function EntryCard({ entry, onEdit, onDelete, onRequestEdit, onAp
   // Parse managers assigned to this entry
   const assignedManagers = entry.entry_managers?.map(em => em.manager?.email || em.manager_id) || [];
 
-  // Determine if employee can delete: only when NOT locked
-  // Once locked (manager has approved/processed), employee loses delete power
-  const canEmployeeDelete = isOwnEntry && isEmployee && !entry.is_locked;
-  const canEmployeeEdit = isOwnEntry && !entry.is_locked;
+  const isWithinCoolingPeriod = (createdAt) => {
+    if (!createdAt) return false;
+    const timeElapsedMs = new Date() - new Date(createdAt);
+    return timeElapsedMs <= 5 * 60 * 1000;
+  };
+
+  const isLocked = entry.is_locked && !isWithinCoolingPeriod(entry.created_at);
+
+  // Determine if employee can delete: only when NOT locked (or in cooling period)
+  // Once locked and cooling period expires, employee loses delete power
+  const canEmployeeDelete = isOwnEntry && isEmployee && !isLocked;
+  const canEmployeeEdit = isOwnEntry && !isLocked;
 
   return (
     <div className="bg-surface-card border border-hairline p-5 rounded-md flex flex-col justify-between gap-4 hover:border-bmw-blue/40 transition-all duration-150">
@@ -47,7 +55,7 @@ export default function EntryCard({ entry, onEdit, onDelete, onRequestEdit, onAp
         {/* Header Badges */}
         <div className="flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-2">
-            <LockBadge isLocked={entry.is_locked} />
+            <LockBadge isLocked={entry.is_locked} createdAt={entry.created_at} />
             <OutputStatusBadge status={entry.output_status} />
           </div>
           <span className="text-[10px] text-muted-text font-light">
@@ -153,7 +161,7 @@ export default function EntryCard({ entry, onEdit, onDelete, onRequestEdit, onAp
 
         {/* Employee own entry */}
         {!isAdmin && isOwnEntry && (
-          entry.is_locked ? (
+          isLocked ? (
             (() => {
               const latestRequest = entry.edit_requests?.[0];
               if (latestRequest?.status === 'pending') {

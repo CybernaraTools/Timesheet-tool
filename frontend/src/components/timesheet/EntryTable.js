@@ -44,7 +44,7 @@ export default function EntryTable({ entries, onEdit, onDelete, onRequestEdit, o
         const entry = info.row.original;
         return (
           <div className="flex flex-col gap-1.5 items-start">
-            <LockBadge isLocked={entry.is_locked} />
+            <LockBadge isLocked={entry.is_locked} createdAt={entry.created_at} />
             <OutputStatusBadge status={entry.output_status} />
           </div>
         );
@@ -141,6 +141,13 @@ export default function EntryTable({ entries, onEdit, onDelete, onRequestEdit, o
       cell: info => {
         const entry = info.row.original;
         const isOwnEntry = entry.user_id === user?.id;
+
+        const isWithinCoolingPeriod = (createdAt) => {
+          if (!createdAt) return false;
+          const timeElapsedMs = new Date() - new Date(createdAt);
+          return timeElapsedMs <= 5 * 60 * 1000;
+        };
+        const isLocked = entry.is_locked && !isWithinCoolingPeriod(entry.created_at);
  
         // Admin rules: full access
         if (isAdmin) {
@@ -166,7 +173,7 @@ export default function EntryTable({ entries, onEdit, onDelete, onRequestEdit, o
  
         // Own entry rules: request edit if locked, edit/delete if unlocked
         if (isOwnEntry) {
-          if (entry.is_locked) {
+          if (isLocked) {
             const latestRequest = entry.edit_requests?.[0];
             if (latestRequest?.status === 'pending') {
               return (
